@@ -106,9 +106,12 @@ struct rpivid_ctx {
 	struct rpivid_dec_state *state;
 	struct rpivid_dec_env *dec0;
 
+	/* Spinlock protecting dec_free */
 	spinlock_t dec_lock;
 	struct rpivid_dec_env *dec_free;
+
 	struct rpivid_dec_env *dec_pool;
+
 	/* Some of these should be in dev */
 	struct rpivid_gptr bitbufs[1];  /* Will be 2 */
 	struct rpivid_gptr cmdbufs[1];  /* Will be 2 */
@@ -117,8 +120,10 @@ struct rpivid_ctx {
 	atomic_t p2out;
 	struct rpivid_gptr p2bufs[RPIVID_P2BUF_COUNT];
 
+	/* Spinlock protecting aux_free */
 	spinlock_t aux_lock;
 	struct rpivid_q_aux *aux_free;
+
 	struct rpivid_q_aux *aux_ents[RPIVID_AUX_ENT_COUNT];
 
 	unsigned int colmv_stride;
