@@ -216,6 +216,10 @@ static const struct vc_image_format {
 		.vc_image = VC_IMAGE_YUV420SP,
 		.is_vu = 1,
 	},
+	{
+		.drm = DRM_FORMAT_P030,
+		.vc_image = VC_IMAGE_YUV10COL,
+	},
 };
 
 static const struct vc_image_format *vc4_get_vc_image_fmt(u32 drm_format)
@@ -260,7 +264,7 @@ static inline struct vc4_crtc *to_vc4_crtc(struct drm_crtc *crtc)
 	return container_of(crtc, struct vc4_crtc, base);
 }
 
-struct vc4_crtc_state {
+struct fkms_crtc_state {
 	struct drm_crtc_state base;
 
 	struct {
@@ -271,10 +275,10 @@ struct vc4_crtc_state {
 	} margins;
 };
 
-static inline struct vc4_crtc_state *
-to_vc4_crtc_state(struct drm_crtc_state *crtc_state)
+static inline struct fkms_crtc_state *
+to_fkms_crtc_state(struct drm_crtc_state *crtc_state)
 {
-	return (struct vc4_crtc_state *)crtc_state;
+	return (struct fkms_crtc_state *)crtc_state;
 }
 
 struct vc4_fkms_encoder {
@@ -410,7 +414,7 @@ static void vc4_fkms_crtc_get_margins(struct drm_crtc_state *state,
 				      unsigned int *left, unsigned int *right,
 				      unsigned int *top, unsigned int *bottom)
 {
-	struct vc4_crtc_state *vc4_state = to_vc4_crtc_state(state);
+	struct fkms_crtc_state *vc4_state = to_fkms_crtc_state(state);
 	struct drm_connector_state *conn_state;
 	struct drm_connector *conn;
 	int i;
@@ -423,7 +427,7 @@ static void vc4_fkms_crtc_get_margins(struct drm_crtc_state *state,
 	/* We have to interate over all new connector states because
 	 * vc4_fkms_crtc_get_margins() might be called before
 	 * vc4_fkms_crtc_atomic_check() which means margins info in
-	 * vc4_crtc_state might be outdated.
+	 * fkms_crtc_state might be outdated.
 	 */
 	for_each_new_connector_in_state(state->state, conn, conn_state, i) {
 		if (conn_state->crtc != state->crtc)
@@ -622,7 +626,15 @@ static int vc4_plane_to_mb(struct drm_plane *plane,
 		}
 		break;
 	case DRM_FORMAT_MOD_BROADCOM_SAND128:
-		mb->plane.vc_image_type = VC_IMAGE_YUV_UV;
+		switch (mb->plane.vc_image_type) {
+		case VC_IMAGE_YUV420SP:
+			mb->plane.vc_image_type = VC_IMAGE_YUV_UV;
+			break;
+		/* VC_IMAGE_YUV10COL could be included in here, but it is only
+		 * valid as a SAND128 format, so the table at the top will have
+		 * already set the correct format.
+		 */
+		}
 		/* Note that the column pitch is passed across in lines, not
 		 * bytes.
 		 */
@@ -704,6 +716,13 @@ static bool vc4_fkms_format_mod_supported(struct drm_plane *plane,
 	case DRM_FORMAT_NV12:
 		switch (fourcc_mod_broadcom_mod(modifier)) {
 		case DRM_FORMAT_MOD_LINEAR:
+		case DRM_FORMAT_MOD_BROADCOM_SAND128:
+			return true;
+		default:
+			return false;
+		}
+	case DRM_FORMAT_P030:
+		switch (fourcc_mod_broadcom_mod(modifier)) {
 		case DRM_FORMAT_MOD_BROADCOM_SAND128:
 			return true;
 		default:
@@ -1068,7 +1087,7 @@ vc4_crtc_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 static int vc4_crtc_atomic_check(struct drm_crtc *crtc,
 				 struct drm_crtc_state *state)
 {
-	struct vc4_crtc_state *vc4_state = to_vc4_crtc_state(state);
+	struct fkms_crtc_state *vc4_state = to_fkms_crtc_state(state);
 	struct drm_connector *conn;
 	struct drm_connector_state *conn_state;
 	int i;
@@ -1178,13 +1197,13 @@ static int vc4_page_flip(struct drm_crtc *crtc,
 static struct drm_crtc_state *
 vc4_crtc_duplicate_state(struct drm_crtc *crtc)
 {
-	struct vc4_crtc_state *vc4_state, *old_vc4_state;
+	struct fkms_crtc_state *vc4_state, *old_vc4_state;
 
 	vc4_state = kzalloc(sizeof(*vc4_state), GFP_KERNEL);
 	if (!vc4_state)
 		return NULL;
 
-	old_vc4_state = to_vc4_crtc_state(crtc->state);
+	old_vc4_state = to_fkms_crtc_state(crtc->state);
 	vc4_state->margins = old_vc4_state->margins;
 
 	__drm_atomic_helper_crtc_duplicate_state(crtc, &vc4_state->base);
