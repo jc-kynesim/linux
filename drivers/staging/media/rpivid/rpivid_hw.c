@@ -72,6 +72,19 @@ static void sched_claim(struct rpivid_dev * const dev,
 	}
 }
 
+/* Should only ever be called from its own IRQ cb so no lock required */
+static void pre_thread(struct rpivid_dev *dev,
+		       struct rpivid_hw_irq_ent *ient,
+		       rpivid_irq_callback cb, void * v,
+		       struct rpivid_hw_irq_ctrl * ictl)
+{
+	ient->cb = cb;
+	ient->v = v;
+	ictl->irq = ient;
+	ictl->thread_reqed = true;
+	ictl->no_sched++;
+}
+
 // Called in irq context
 static void do_irq(struct rpivid_dev * const dev,
 		   struct rpivid_hw_irq_ctrl * const ictl)
@@ -147,7 +160,7 @@ static void ictl_uninit(struct rpivid_hw_irq_ctrl * const ictl)
 }
 
 #if !OPT_DEBUG_POLL_IRQ
-static irqreturn_t rpivid_irq(int irq, void *data)
+static irqreturn_t rpivid_irq_irq(int irq, void *data)
 {
 	struct rpivid_dev * const dev = data;
 	__u32 ictrl;
@@ -168,9 +181,52 @@ static irqreturn_t rpivid_irq(int irq, void *data)
 	if (ictrl & ARG_IC_ICTRL_ACTIVE1_INT_SET)
 		do_irq(dev, &dev->ic_active1);
 
+	return dev->ic_active1.thread_reqed || dev->ic_active2.thread_reqed ?
+		IRQ_WAKE_THREAD : IRQ_HANDLED;
+}
+
+static void do_thread(struct rpivid_dev * const dev, struct rpivid_hw_irq_ctrl *const ictl)
+{
+	unsigned long flags;
+	struct rpivid_hw_irq_ent * ient = NULL;
+
+	spin_lock_irqsave(&ictl->lock, flags);
+
+	if (ictl->thread_reqed) {
+		ient = ictl->irq;
+		ictl->thread_reqed = false;
+		ictl->irq = NULL;
+	}
+
+	spin_unlock_irqrestore(&ictl->lock, flags);
+
+	if (ient != NULL) {
+		ient->cb(dev, ient->v);
+
+		sched_claim(dev, ictl);
+	}
+}
+
+static irqreturn_t rpivid_irq_thread(int irq, void *data)
+{
+	struct rpivid_dev * const dev = data;
+
+	do_thread(dev, &dev->ic_active1);
+	do_thread(dev, &dev->ic_active2);
+
 	return IRQ_HANDLED;
 }
 #endif
+
+/* May only be called from Active1 CB
+ * IRQs should not be expected until execution continues in the cb
+ */
+void rpivid_hw_irq_active1_thread(struct rpivid_dev *dev,
+				  struct rpivid_hw_irq_ent *ient,
+				  rpivid_irq_callback thread_cb, void *ctx)
+{
+	pre_thread(dev, ient, thread_cb, ctx, &dev->ic_active1);
+}
 
 void rpivid_hw_irq_active1_claim(struct rpivid_dev *dev,
 				 struct rpivid_hw_irq_ent *ient,
@@ -238,8 +294,10 @@ int rpivid_hw_probe(struct rpivid_dev *dev)
 	irq_dec = platform_get_irq(dev->pdev, 0);
 	if (irq_dec <= 0)
 		return irq_dec;
-	ret = devm_request_irq(dev->dev, irq_dec, rpivid_irq,
-			       0, dev_name(dev->dev), dev);
+	ret = devm_request_threaded_irq(dev->dev, irq_dec,
+					rpivid_irq_irq,
+					rpivid_irq_thread,
+					0, dev_name(dev->dev), dev);
 	if (ret) {
 		dev_err(dev->dev, "Failed to request IRQ\n");
 
