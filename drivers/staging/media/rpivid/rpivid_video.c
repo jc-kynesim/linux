@@ -34,10 +34,12 @@ static inline struct rpivid_ctx *rpivid_file2ctx(struct file *file)
 	return container_of(file->private_data, struct rpivid_ctx, fh);
 }
 
-/* constrian x to y,y*2 */
+/* constrain x to y,y*2 */
 static inline unsigned int constrain2x(unsigned int x, unsigned int y)
 {
-	return x < y ? y : x > y * 2 ? y : x;
+	return (x < y) ?
+			y :
+			(x > y * 2) ? y : x;
 }
 
 int rpivid_prepare_src_format(struct v4l2_pix_format *pix_fmt)
@@ -152,28 +154,43 @@ static int rpivid_hevc_validate_sps(const struct v4l2_ctrl_hevc_sps * const sps)
 
 	/* Local limitations */
 	if (sps->pic_width_in_luma_samples < 32 ||
-	    sps->pic_width_in_luma_samples > 4096 ||
-	    sps->pic_height_in_luma_samples < 32 ||
-	    sps->pic_height_in_luma_samples > 4096 ||
-	    !(sps->bit_depth_luma_minus8 == 0 ||
-	      sps->bit_depth_luma_minus8 == 2) ||
-	    sps->bit_depth_luma_minus8 != sps->bit_depth_chroma_minus8 ||
-	    sps->chroma_format_idc != 1 ||
-	    /*  Limits from H.265 7.4.3.2.1 */
-	    sps->log2_max_pic_order_cnt_lsb_minus4 > 12 ||
-	    sps->sps_max_dec_pic_buffering_minus1 > 15 ||
-	    sps->sps_max_num_reorder_pics >
-				sps->sps_max_dec_pic_buffering_minus1 ||
-	    ctb_log2_size_y > 6 ||
-	    max_tb_log2_size_y > 5 ||
-	    max_tb_log2_size_y > ctb_log2_size_y ||
-	    sps->max_transform_hierarchy_depth_inter >
-				(ctb_log2_size_y - min_tb_log2_size_y) ||
-	    sps->max_transform_hierarchy_depth_intra >
-				(ctb_log2_size_y - min_tb_log2_size_y) ||
-	    /* Check pcm stuff */
-	    sps->num_short_term_ref_pic_sets > 64 ||
-	    sps->num_long_term_ref_pics_sps > 32)
+	    sps->pic_width_in_luma_samples > 4096)
+		return 0;
+	if (sps->pic_height_in_luma_samples < 32 ||
+	    sps->pic_height_in_luma_samples > 4096)
+		return 0;
+	if (!(sps->bit_depth_luma_minus8 == 0 ||
+	      sps->bit_depth_luma_minus8 == 2))
+		return 0;
+	if (sps->bit_depth_luma_minus8 != sps->bit_depth_chroma_minus8)
+		return 0;
+	if (sps->chroma_format_idc != 1)
+		return 0;
+
+	/*  Limits from H.265 7.4.3.2.1 */
+	if (sps->log2_max_pic_order_cnt_lsb_minus4 > 12)
+		return 0;
+	if (sps->sps_max_dec_pic_buffering_minus1 > 15)
+		return 0;
+	if (sps->sps_max_num_reorder_pics >
+				sps->sps_max_dec_pic_buffering_minus1)
+		return 0;
+	if (ctb_log2_size_y > 6)
+		return 0;
+	if (max_tb_log2_size_y > 5)
+		return 0;
+	if (max_tb_log2_size_y > ctb_log2_size_y)
+		return 0;
+	if (sps->max_transform_hierarchy_depth_inter >
+				(ctb_log2_size_y - min_tb_log2_size_y))
+		return 0;
+	if (sps->max_transform_hierarchy_depth_intra >
+				(ctb_log2_size_y - min_tb_log2_size_y))
+		return 0;
+	/* Check pcm stuff */
+	if (sps->num_short_term_ref_pic_sets > 64)
+		return 0;
+	if (sps->num_long_term_ref_pics_sps > 32)
 		return 0;
 	return 1;
 }
@@ -263,7 +280,7 @@ static int rpivid_g_fmt_vid_out(struct file *file, void *priv,
 	return 0;
 }
 
-static inline void cpy_colour(struct v4l2_pix_format *d,
+static inline void copy_color(struct v4l2_pix_format *d,
 			      const struct v4l2_pix_format *s)
 {
 	d->colorspace   = s->colorspace;
@@ -301,7 +318,7 @@ static int rpivid_try_fmt_vid_cap(struct file *file, void *priv,
 	// We don't have any way of finding out colourspace so believe
 	// anything we are told - take anything set in src as a default
 	if (f->fmt.pix.colorspace == V4L2_COLORSPACE_DEFAULT)
-		cpy_colour(&f->fmt.pix, &ctx->src_fmt);
+		copy_color(&f->fmt.pix, &ctx->src_fmt);
 
 	f->fmt.pix.pixelformat = pixelformat;
 	return rpivid_prepare_dst_format(&f->fmt.pix);
@@ -364,7 +381,7 @@ static int rpivid_s_fmt_vid_out(struct file *file, void *priv,
 		VB2_V4L2_FL_SUPPORTS_M2M_HOLD_CAPTURE_BUF;
 
 	/* Propagate colorspace information to capture. */
-	cpy_colour(&ctx->dst_fmt, &f->fmt.pix);
+	copy_color(&ctx->dst_fmt, &f->fmt.pix);
 	return 0;
 }
 
@@ -392,8 +409,7 @@ const struct v4l2_ioctl_ops rpivid_ioctl_ops = {
 	.vidioc_streamon		= v4l2_m2m_ioctl_streamon,
 	.vidioc_streamoff		= v4l2_m2m_ioctl_streamoff,
 
-	.vidioc_try_decoder_cmd		=
-				v4l2_m2m_ioctl_stateless_try_decoder_cmd,
+	.vidioc_try_decoder_cmd		= v4l2_m2m_ioctl_stateless_try_decoder_cmd,
 	.vidioc_decoder_cmd		= v4l2_m2m_ioctl_stateless_decoder_cmd,
 
 	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,

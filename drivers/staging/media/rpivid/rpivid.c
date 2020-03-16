@@ -418,8 +418,7 @@ static struct platform_driver rpivid_driver = {
 	.probe		= rpivid_probe,
 	.remove		= rpivid_remove,
 	.driver		= {
-		.name		= RPIVID_NAME,
-		.owner = THIS_MODULE,
+		.name = RPIVID_NAME,
 		.of_match_table	= of_match_ptr(rpivid_dt_match),
 	},
 };

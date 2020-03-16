@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
 
-# SPDX-License-Identifier: GPL-2.0
 config VIDEO_RPIVID
 	tristate "Rpi H265 driver"
 	depends on VIDEO_DEV && VIDEO_V4L2
@@ -13,5 +12,5 @@ config VIDEO_RPIVID
 	  Support for the Rpi H265 h/w decoder.
 
 	  To compile this driver as a module, choose M here: the module
-	  will be called sunxi-cedrus.
+	  will be called rpivid-hevc.
 

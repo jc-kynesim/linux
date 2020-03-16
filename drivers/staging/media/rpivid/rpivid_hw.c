@@ -241,7 +241,7 @@ int rpivid_hw_probe(struct rpivid_dev *dev)
 	ret = devm_request_irq(dev->dev, irq_dec, rpivid_irq,
 			       0, dev_name(dev->dev), dev);
 	if (ret) {
-		dev_err(dev->dev, "Failed to request IRQ\n");
+		dev_err(dev->dev, "Failed to request IRQ - %d\n", ret);
 
 		return ret;
 	}
