@@ -1326,23 +1326,21 @@ static struct rpivid_dec_env *dec_env_new(struct rpivid_ctx *const ctx)
 static void dec_env_delete(struct rpivid_ctx *const ctx,
 			   struct rpivid_dec_env *const de)
 {
+	unsigned long lock_flags;
+
 	if (!de)
 		return;
 
 	aux_q_release(ctx, &de->frame_aux);
 	aux_q_release(ctx, &de->col_aux);
 
-	{
-		unsigned long lock_flags;
+	spin_lock_irqsave(&ctx->dec_lock, lock_flags);
 
-		spin_lock_irqsave(&ctx->dec_lock, lock_flags);
+	de->state = RPIVID_DECODE_END;
+	de->next = ctx->dec_free;
+	ctx->dec_free = de;
 
-		de->state = RPIVID_DECODE_END;
-		de->next = ctx->dec_free;
-		ctx->dec_free = de;
-
-		spin_unlock_irqrestore(&ctx->dec_lock, lock_flags);
-	}
+	spin_unlock_irqrestore(&ctx->dec_lock, lock_flags);
 }
 
 static void dec_env_uninit(struct rpivid_ctx *const ctx)
