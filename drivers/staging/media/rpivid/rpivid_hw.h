@@ -20,25 +20,90 @@ struct rpivid_hw_irq_ent {
 	void *v;
 };
 
+/* Phase 1 Register offsets */
+
+#define RPI_SPS0 0
+#define RPI_SPS1 4
+#define RPI_PPS 8
+#define RPI_SLICE 12
+#define RPI_TILESTART 16
+#define RPI_TILEEND 20
+#define RPI_SLICESTART 24
+#define RPI_MODE 28
+#define RPI_LEFT0 32
+#define RPI_LEFT1 36
+#define RPI_LEFT2 40
+#define RPI_LEFT3 44
+#define RPI_QP 48
+#define RPI_CONTROL 52
+#define RPI_STATUS 56
+#define RPI_VERSION 60
+#define RPI_BFBASE 64
+#define RPI_BFNUM 68
+#define RPI_BFCONTROL 72
+#define RPI_BFSTATUS 76
+#define RPI_PUWBASE 80
+#define RPI_PUWSTRIDE 84
+#define RPI_COEFFWBASE 88
+#define RPI_COEFFWSTRIDE 92
+#define RPI_SLICECMDS 96
+#define RPI_BEGINTILEEND 100
+#define RPI_TRANSFER 104
+#define RPI_CFBASE 108
+#define RPI_CFNUM 112
+#define RPI_CFSTATUS 116
+
+/* Phase 2 Register offsets */
+
+#define RPI_PURBASE 0x8000
+#define RPI_PURSTRIDE 0x8004
+#define RPI_COEFFRBASE 0x8008
+#define RPI_COEFFRSTRIDE 0x800C
+#define RPI_NUMROWS 0x8010
+#define RPI_CONFIG2 0x8014
+#define RPI_OUTYBASE 0x8018
+#define RPI_OUTYSTRIDE 0x801C
+#define RPI_OUTCBASE 0x8020
+#define RPI_OUTCSTRIDE 0x8024
+#define RPI_STATUS2 0x8028
+#define RPI_FRAMESIZE 0x802C
+#define RPI_MVBASE 0x8030
+#define RPI_MVSTRIDE 0x8034
+#define RPI_COLBASE 0x8038
+#define RPI_COLSTRIDE 0x803C
+#define RPI_CURRPOC 0x8040
+
+
+/*
+ * Write a general register value
+ * Order is unimportant
+ */
 static inline void apb_write(const struct rpivid_dev * const dev,
-			     const unsigned int offset, const __u32 val)
+			     const unsigned int offset, const u32 val)
+{
+	writel_relaxed(val, dev->base_h265 + offset);
+}
+
+/* Write the final register value that actually starts the phase */
+static inline void apb_write_final(const struct rpivid_dev * const dev,
+			     const unsigned int offset, const u32 val)
 {
 	writel(val, dev->base_h265 + offset);
 }
 
-static inline __u32 apb_read(const struct rpivid_dev * const dev,
+static inline u32 apb_read(const struct rpivid_dev * const dev,
 			     const unsigned int offset)
 {
 	return readl(dev->base_h265 + offset);
 }
 
 static inline void irq_write(const struct rpivid_dev * const dev,
-			     const unsigned int offset, const __u32 val)
+			     const unsigned int offset, const u32 val)
 {
 	writel(val, dev->base_irq + offset);
 }
 
-static inline __u32 irq_read(const struct rpivid_dev * const dev,
+static inline u32 irq_read(const struct rpivid_dev * const dev,
 			     const unsigned int offset)
 {
 	return readl(dev->base_irq + offset);
@@ -48,7 +113,14 @@ static inline void apb_write_vc_addr(const struct rpivid_dev * const dev,
 				     const unsigned int offset,
 				     const dma_addr_t a)
 {
-	apb_write(dev, offset, (__u32)(a >> 6));
+	apb_write(dev, offset, (u32)(a >> 6));
+}
+
+static inline void apb_write_vc_addr_final(const struct rpivid_dev * const dev,
+				     const unsigned int offset,
+				     const dma_addr_t a)
+{
+	apb_write_final(dev, offset, (u32)(a >> 6));
 }
 
 static inline void apb_write_vc_len(const struct rpivid_dev * const dev,
@@ -209,6 +281,11 @@ void rpivid_hw_irq_active1_claim(struct rpivid_dev *dev,
 void rpivid_hw_irq_active1_irq(struct rpivid_dev *dev,
 			       struct rpivid_hw_irq_ent *ient,
 			       rpivid_irq_callback irq_cb, void *ctx);
+/* May only be called in irq cb */
+void rpivid_hw_irq_active1_thread(struct rpivid_dev *dev,
+                                struct rpivid_hw_irq_ent *ient,
+                                rpivid_irq_callback thread_cb, void * ctx);
+
 
 /* Auto release once all CBs called */
 void rpivid_hw_irq_active2_claim(struct rpivid_dev *dev,
