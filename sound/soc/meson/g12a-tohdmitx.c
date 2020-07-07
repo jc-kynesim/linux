@@ -155,7 +155,7 @@ static const struct snd_soc_dai_ops g12a_tohdmitx_output_ops = {
 #define TOHDMITX_I2S_FORMATS					\
 	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE |	\
 	 SNDRV_PCM_FMTBIT_S24_3LE | SNDRV_PCM_FMTBIT_S24_LE |	\
-	 SNDRV_PCM_FMTBIT_S32_LE)
+	 SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_IEC958_SUBFRAME_LE)
 
 #define TOHDMITX_STREAM(xname, xsuffix, xfmt, xchmax)		\
 {								\

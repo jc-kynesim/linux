@@ -114,7 +114,7 @@ static const struct snd_soc_dai_ops aiu_acodec_ctrl_output_ops = {
 #define AIU_ACODEC_CTRL_FORMATS					\
 	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE |	\
 	 SNDRV_PCM_FMTBIT_S24_3LE | SNDRV_PCM_FMTBIT_S24_LE |	\
-	 SNDRV_PCM_FMTBIT_S32_LE)
+	 SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_IEC958_SUBFRAME_LE)
 
 #define AIU_ACODEC_STREAM(xname, xsuffix, xchmax)		\
 {								\

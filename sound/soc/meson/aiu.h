@@ -42,7 +42,8 @@ struct aiu {
 
 #define AIU_FORMATS (SNDRV_PCM_FMTBIT_S16_LE |	\
 		     SNDRV_PCM_FMTBIT_S20_LE |	\
-		     SNDRV_PCM_FMTBIT_S24_LE)
+		     SNDRV_PCM_FMTBIT_S24_LE |  \
+		     SNDRV_PCM_FMTBIT_IEC958_SUBFRAME_LE)
 
 int aiu_of_xlate_dai_name(struct snd_soc_component *component,
 			  struct of_phandle_args *args,
