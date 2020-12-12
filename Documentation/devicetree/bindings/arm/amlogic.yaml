@@ -170,6 +170,7 @@ properties:
               - cyx,a95xf3-air-2g
               - cyx,a95xf3-air-4g
               - hardkernel,odroid-c4
+              - hardkernel,odroid-hc4
               - khadas,vim3l
               - seirobotics,sei610
           - const: amlogic,sm1
