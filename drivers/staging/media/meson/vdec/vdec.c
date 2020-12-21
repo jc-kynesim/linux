@@ -731,20 +731,21 @@ vdec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
 	if (ret)
 		return ret;
 
-	if (!(sess->streamon_out && sess->streamon_cap))
-		return 0;
-
 	if (cmd->cmd == V4L2_DEC_CMD_START) {
 		struct vb2_queue *dst_vq;
 		dst_vq = v4l2_m2m_get_vq(sess->fh.m2m_ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
 
 		v4l2_m2m_clear_state(sess->m2m_ctx);
-		vb2_clear_last_buffer_dequeued(dst_vq);
+		if (dst_vq)
+			vb2_clear_last_buffer_dequeued(dst_vq);
 		sess->should_stop = 0;
 
 		dev_err(dev, "Start seen!\n");
 		return 0;
 	}
+
+	if (!sess->streamon_out || !sess->streamon_cap)
+		return 0;
 
 	/* Should not happen */
 	if (cmd->cmd != V4L2_DEC_CMD_STOP)
