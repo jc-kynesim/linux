@@ -98,7 +98,7 @@ struct rpivid_ctx {
 	int dst_fmt_set;
 
 	atomic_t stream_state;
-	int clk_on;				/* we have a ref on the clk */
+	struct clk_request		*clk_req;
 	int src_stream_on;
 	int dst_stream_on;
 
@@ -192,9 +192,6 @@ struct rpivid_dev {
 	void __iomem		*base_irq;
 	void __iomem		*base_h265;
 
-	/* Protects clk_count & operations on clock */
-	struct mutex		clk_mutex;
-	int 			clk_count;
 	struct clk		*clock;
 
 	int			cache_align;
