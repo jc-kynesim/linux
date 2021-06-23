@@ -140,6 +140,7 @@ struct rpi_cmd {
 struct rpivid_q_aux {
 	unsigned int refcount;
 	unsigned int q_index;
+	u64 timestamp;
 	struct rpivid_q_aux *next;
 	struct rpivid_gptr col;
 };
@@ -392,7 +393,8 @@ fail:
 }
 
 static struct rpivid_q_aux *aux_q_new(struct rpivid_ctx *const ctx,
-				      const unsigned int q_index)
+				      const unsigned int q_index,
+				      const u64 timestamp)
 {
 	struct rpivid_q_aux *aq;
 	unsigned long lockflags;
@@ -413,7 +415,9 @@ static struct rpivid_q_aux *aux_q_new(struct rpivid_ctx *const ctx,
 	}
 
 	aq->q_index = q_index;
+	aq->timestamp = timestamp;
 	ctx->aux_ents[q_index] = aq;
+	v4l2_info(&ctx->dev->v4l2_dev, "%s[%d]: %lld\n", __func__, q_index, (long long)timestamp);
 	return aq;
 }
 
@@ -440,16 +444,27 @@ static void aux_q_release(struct rpivid_ctx *const ctx,
 
 	if (aq) {
 		unsigned long lockflags;
+		int q_index = -1;
+		u64 timestamp = 0;
 
 		spin_lock_irqsave(&ctx->aux_lock, lockflags);
 
 		if (--aq->refcount == 0) {
+			q_index = aq->q_index;
+			timestamp = aq->timestamp;
+
 			aq->next = ctx->aux_free;
 			ctx->aux_free = aq;
 			ctx->aux_ents[aq->q_index] = NULL;
+
+			aq->q_index = ~0U;
+			aq->timestamp = 0;
 		}
 
 		spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
+
+		if (q_index >= 0)
+			v4l2_info(&ctx->dev->v4l2_dev, "%s[%d]: %lld\n", __func__, q_index, (long long)timestamp);
 	}
 }
 
@@ -1962,8 +1977,8 @@ static void rpivid_h265_setup(struct rpivid_ctx *ctx, struct rpivid_run *run)
 						 ctx->aux_ents[buffer_index]);
 			if (!dpb_q_aux[i])
 				v4l2_warn(&dev->v4l2_dev,
-					  "Missing DPB AUX ent %d index=%d\n",
-					  i, buffer_index);
+					  "Missing DPB AUX ent %d, timestamp=%lld, index=%d\n",
+					  i, (long long)sh->dpb[i].timestamp, buffer_index);
 		}
 
 		de->ref_addrs[i] =
@@ -1982,7 +1997,7 @@ static void rpivid_h265_setup(struct rpivid_ctx *ctx, struct rpivid_run *run)
 	if (use_aux) {
 		// New frame so new aux ent
 		// ??? Do we need this if non-ref ??? can we tell
-		s->frame_aux = aux_q_new(ctx, run->dst->vb2_buf.index);
+		s->frame_aux = aux_q_new(ctx, run->dst->vb2_buf.index, run->dst->vb2_buf.timestamp);
 
 		if (!s->frame_aux) {
 			v4l2_err(&dev->v4l2_dev,
