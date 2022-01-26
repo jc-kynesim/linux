@@ -180,6 +180,13 @@ struct drm_plane_state {
 	enum drm_color_range color_range;
 
 	/**
+	 * @chroma_siting:
+	 *
+	 * Location of chroma samples
+	 */
+	enum drm_chroma_siting chroma_siting;
+
+	/**
 	 * @fb_damage_clips:
 	 *
 	 * Blob representing damage (area in plane framebuffer that changed
@@ -750,6 +757,15 @@ struct drm_plane {
 	 * scaling.
 	 */
 	struct drm_property *scaling_filter_property;
+
+	/**
+	 * @chroma_siting_property:
+	 *
+	 * Optional "CHROMA_SITING" enum property for specifying
+	 * chroma siting for YUV formats.
+	 * See drm_plane_create_chroma_properties().
+	 */
+	struct drm_property *chroma_siting_property;
 };
 
 #define obj_to_plane(x) container_of(x, struct drm_plane, base)
