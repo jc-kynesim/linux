@@ -903,6 +903,12 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 			return PTR_ERR(hvs->core_clk);
 		}
 
+		ret = clk_set_min_rate(hvs->core_clk, 550000000);
+		if (!ret) {
+			clk_drop_range(hvs->core_clk);
+			hvs->vc5_hdmi_enable_scrambling = true;
+		}
+
 		ret = clk_prepare_enable(hvs->core_clk);
 		if (ret) {
 			dev_err(&pdev->dev, "Couldn't enable the core clock\n");
