@@ -327,10 +327,6 @@ int rpivid_hw_probe(struct rpivid_dev *dev)
 	if (IS_ERR(dev->base_h265))
 		return PTR_ERR(dev->base_h265);
 
-	dev->clock = devm_clk_get(&dev->pdev->dev, "hevc");
-	if (IS_ERR(dev->clock))
-		return PTR_ERR(dev->clock);
-
 	dev->cache_align = dma_get_cache_alignment();
 
 	// Disable IRQs & reset anything pending

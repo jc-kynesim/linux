@@ -85,6 +85,7 @@ struct rpivid_q_aux;
 struct rpivid_ctx {
 	struct v4l2_fh			fh;
 	struct rpivid_dev		*dev;
+	struct clk			*clk;
 
 	struct v4l2_pix_format_mplane	src_fmt;
 	struct v4l2_pix_format_mplane	dst_fmt;
@@ -183,8 +184,6 @@ struct rpivid_dev {
 
 	void __iomem		*base_irq;
 	void __iomem		*base_h265;
-
-	struct clk		*clock;
 
 	int			cache_align;
 

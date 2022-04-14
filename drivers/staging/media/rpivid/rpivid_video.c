@@ -545,11 +545,15 @@ static int rpivid_buf_prepare(struct vb2_buffer *vb)
 static void stop_clock(struct rpivid_dev *dev, struct rpivid_ctx *ctx)
 {
 	if (ctx->src_stream_on ||
-	    ctx->dst_stream_on)
+	    ctx->dst_stream_on ||
+	    !ctx->clk)
 		return;
 
-	clk_set_min_rate(dev->clock, 0);
-	clk_disable_unprepare(dev->clock);
+	clk_disable_unprepare(ctx->clk);
+	clk_put(ctx->clk);
+	ctx->clk = NULL;
+
+	dev_info(dev->dev, "Drop clock\n");
 }
 
 /* Always starts the clock if it isn't already on this ctx */
@@ -557,22 +561,40 @@ static int start_clock(struct rpivid_dev *dev, struct rpivid_ctx *ctx)
 {
 	long max_hevc_clock;
 	int rv;
+	struct clk * clk;
 
-	max_hevc_clock = clk_round_rate(dev->clock, ULONG_MAX);
+	if (ctx->clk)
+		return 0;
 
-	rv = clk_set_min_rate(dev->clock, max_hevc_clock);
+	clk = clk_get(dev->dev, "hevc");
+	if (IS_ERR(clk)) {
+		dev_err(dev->dev, "Failed to get hevc clock\n");
+		return PTR_ERR(clk);
+	}
+
+	max_hevc_clock = clk_round_rate(clk, ULONG_MAX);
+
+	rv = clk_set_min_rate(clk, max_hevc_clock);
 	if (rv) {
 		dev_err(dev->dev, "Failed to set clock rate\n");
-		return rv;
+		goto err_put_clk;
 	}
 
-	rv = clk_prepare_enable(dev->clock);
+	rv = clk_prepare_enable(clk);
 	if (rv) {
 		dev_err(dev->dev, "Failed to enable clock\n");
-		return rv;
+		goto err_drop_range;
 	}
 
+	dev_info(dev->dev, "Set clock to %lu\n", max_hevc_clock);
+	ctx->clk = clk;
 	return 0;
+
+err_drop_range:
+err_put_clk:
+	clk_put(ctx->clk);
+	return rv;
+
 }
 
 static int rpivid_start_streaming(struct vb2_queue *vq, unsigned int count)
@@ -619,8 +641,6 @@ static void rpivid_stop_streaming(struct vb2_queue *vq)
 {
 	struct rpivid_ctx *ctx = vb2_get_drv_priv(vq);
 	struct rpivid_dev *dev = ctx->dev;
-	long min_hevc_clock = clk_round_rate(dev->clock, 0);
-	int ret;
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		ctx->src_stream_on = 0;
