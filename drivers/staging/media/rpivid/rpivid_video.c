@@ -556,6 +556,25 @@ static void stop_clock(struct rpivid_dev *dev, struct rpivid_ctx *ctx)
 	dev_info(dev->dev, "Drop clock\n");
 }
 
+/* It appears the only way of find the max allowable clock is to try
+ * everything
+ */
+static unsigned long set_max_clock(struct clk *clk)
+{
+       unsigned long hi = ULONG_MAX;
+       unsigned long lo = 1;
+
+       while (hi > lo) {
+               const unsigned long t = lo + (hi - lo + 1) / 2;
+               if (!clk_set_min_rate(clk, t)) {
+                       lo = t;
+               } else {
+                       hi = t - 1;
+               }
+       }
+       return lo;
+}
+
 /* Always starts the clock if it isn't already on this ctx */
 static int start_clock(struct rpivid_dev *dev, struct rpivid_ctx *ctx)
 {
@@ -572,13 +591,7 @@ static int start_clock(struct rpivid_dev *dev, struct rpivid_ctx *ctx)
 		return PTR_ERR(clk);
 	}
 
-	max_hevc_clock = clk_round_rate(clk, ULONG_MAX);
-
-	rv = clk_set_min_rate(clk, max_hevc_clock);
-	if (rv) {
-		dev_err(dev->dev, "Failed to set clock rate\n");
-		goto err_put_clk;
-	}
+	max_hevc_clock = set_max_clock(clk);
 
 	rv = clk_prepare_enable(clk);
 	if (rv) {
