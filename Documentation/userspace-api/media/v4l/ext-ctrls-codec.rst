@@ -3005,14 +3005,11 @@ enum v4l2_mpeg_video_hevc_size_of_length_field -
     :widths:       1 1 2
 
     * - __u32
-      - ``bit_size``
-      - Size (in bits) of the current slice data.
-    * - __u32
       - ``data_bit_offset``
       - Offset (in bits) to the video data in the current slice data.
     * - __u32
-      - ``slice_segment_addr``
-      -
+      - ``num_entry_point_offsets``
+      - Specifies the number of entry point offset syntax elements in the slice header.
     * - __u8
       - ``nal_unit_type``
       - Specifies the coding type of the slice (B, P or I).
@@ -3152,6 +3149,14 @@ enum v4l2_mpeg_video_hevc_size_of_length_field -
 .. raw:: latex
 
     \normalsize
+
+``V4L2_CID_STATELESS_HEVC_ENTRY_POINT_OFFSETS (integer)``
+    Specifies entry point offsets in bytes.
+    This control is a dynamically sized array. The number of entry point
+    offsets is reported by the ``elems`` field.
+    This bitstream parameter is defined according to :ref:`hevc`.
+    They are described in section 7.4.7.1 "General slice segment header
+    semantics" of the specification.
 
 ``V4L2_CID_STATELESS_HEVC_SCALING_MATRIX (struct)``
     Specifies the HEVC scaling matrix parameters used for the scaling process
