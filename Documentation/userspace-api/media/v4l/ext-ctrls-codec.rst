@@ -3005,8 +3005,8 @@ enum v4l2_mpeg_video_hevc_size_of_length_field -
     :widths:       1 1 2
 
     * - __u32
-      - ``data_bit_offset``
-      - Offset (in bits) to the video data in the current slice data.
+      - ``data_byte_offset``
+      - Offset (in bytes) to the video data in the current slice data.
     * - __u32
       - ``num_entry_point_offsets``
       - Specifies the number of entry point offset syntax elements in the slice header.
