@@ -123,6 +123,20 @@ All components are stored with the same number of bits per component.
       - Cb, Cr
       - Yes
       - 4x4 tiles
+    * - V4L2_PIX_FMT_NV12_C128
+      - 'CN12'
+      - 8
+      - 4:2:0
+      - Cb, Cr
+      - Yes
+      - 128 byte columns
+    * - V4L2_PIX_FMT_P030_C128
+      - 'CN30'
+      - 10
+      - 4:2:0
+      - Cb, Cr
+      - Yes
+      - 128 byte columns
     * - V4L2_PIX_FMT_NV16
       - 'NV16'
       - 8
@@ -277,6 +291,8 @@ of the luma plane.
 .. _V4L2-PIX-FMT-NV12M-10BE-8L128:
 .. _V4L2-PIX-FMT-NV12-10BE-8L128:
 .. _V4L2-PIX-FMT-MM21:
+.. _V4L2-PIX-FMT-NV12-C128:
+.. _V4L2-PIX-FMT-P030-C128:
 
 Tiled NV12
 ----------
@@ -364,6 +380,182 @@ two non-contiguous planes.
 
     Example V4L2_PIX_FMT_NV12MT memory layout of tiles
 
+``V4L2_PIX_FMT_NV21_C128`` store 8 bit luma and chroma data in 128 byte
+columns. Chroma data follows luma in each column. Height, which must be
+a multiple of 2 (h in the table below) determines the offset to the start
+of chroma data. Overall (luma + chroma)
+column height (ch in the table below) is also required and this is obtained
+by dividing the sizeimage by bytesperline. bytesperline is width rounded up
+to the next multiple of the column width (128).
+
+.. flat-table::
+    :header-rows:  0
+    :stub-columns: 0
+    :widths: 15 10 10 10 10 4 10 10 10 10
+
+    * - start + 0:
+      - Y'\ :sub:`0,0`
+      - Y'\ :sub:`0,1`
+      - Y'\ :sub:`0,2`
+      - Y'\ :sub:`0,3`
+      - ...
+      - Y'\ :sub:`0,124`
+      - Y'\ :sub:`0,125`
+      - Y'\ :sub:`0,126`
+      - Y'\ :sub:`0,127`
+    * - start + 128:
+      - Y'\ :sub:`1,0`
+      - Y'\ :sub:`1,1`
+      - Y'\ :sub:`1,2`
+      - Y'\ :sub:`1,3`
+      - ...
+      - Y'\ :sub:`1,124`
+      - Y'\ :sub:`1,125`
+      - Y'\ :sub:`1,126`
+      - Y'\ :sub:`1,127`
+    * - start + 256:
+      - Y'\ :sub:`2,0`
+      - Y'\ :sub:`2,1`
+      - Y'\ :sub:`2,2`
+      - Y'\ :sub:`2,3`
+      - ...
+      - Y'\ :sub:`2,124`
+      - Y'\ :sub:`2,125`
+      - Y'\ :sub:`2,126`
+      - Y'\ :sub:`2,127`
+    * - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+    * - start + ((h-1) * 128):
+      - Y'\ :sub:`h-1,0`
+      - Y'\ :sub:`h-1,1`
+      - Y'\ :sub:`h-1,2`
+      - Y'\ :sub:`h-1,3`
+      - ...
+      - Y'\ :sub:`h-1,124`
+      - Y'\ :sub:`h-1,125`
+      - Y'\ :sub:`h-1,126`
+      - Y'\ :sub:`h-1,127`
+    * - start + ((h) * 128):
+      - Cb\ :sub:`0,0`
+      - Cr\ :sub:`0,0`
+      - Cb\ :sub:`0,1`
+      - Cr\ :sub:`0,1`
+      - ...
+      - Cb\ :sub:`0,62`
+      - Cr\ :sub:`0,62`
+      - Cb\ :sub:`0,63`
+      - Cr\ :sub:`0,63`
+    * - start + ((h+1) * 128):
+      - Cb\ :sub:`1,0`
+      - Cr\ :sub:`1,0`
+      - Cb\ :sub:`1,1`
+      - Cr\ :sub:`1,1`
+      - ...
+      - Cb\ :sub:`1,62`
+      - Cr\ :sub:`1,62`
+      - Cb\ :sub:`1,63`
+      - Cr\ :sub:`1,63`
+    * - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+    * - start + ((h+(h/2)-1) * 128):
+      - Cb\ :sub:`(h/2)-1,0`
+      - Cr\ :sub:`(h/2)-1,0`
+      - Cb\ :sub:`(h/2)-1,1`
+      - Cr\ :sub:`(h/2)-1,1`
+      - ...
+      - Cb\ :sub:`(h/2)-1,62`
+      - Cr\ :sub:`(h/2)-1,62`
+      - Cb\ :sub:`(h/2)-1,63`
+      - Cr\ :sub:`(h/2)-1,63`
+    * - start + (ch * 128):
+      - Y'\ :sub:`0,128`
+      - Y'\ :sub:`0,129`
+      - Y'\ :sub:`0,130`
+      - Y'\ :sub:`0,131`
+      - ...
+      - Y'\ :sub:`0,252`
+      - Y'\ :sub:`0,253`
+      - Y'\ :sub:`0,254`
+      - Y'\ :sub:`0,255`
+    * - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+      - ...
+
+``V4L2_PIX_FMT_P030_C128`` uses the same 128 byte column structure as
+``V4L2_PIX_FMT_NV12_C128``, but encodes 10-bit YUV.
+3 10-bit values are packed into 4 bytes as bits 9:0, 19:10, and 29:20, with
+bits 30 & 31 unused. For the luma plane, bits 9:0 are Y0, 19:10 are Y1, and
+29:20 are Y2. For the chroma plane the samples always come in pairs of Cr
+and Cb, so it needs to be considered 6 values packed in 8 bytes. bytesperline
+is ((width + 95)/96)*128
+
+Bit-packed representation - Luma:
+
+.. flat-table::
+    :header-rows:  1
+    :stub-columns: 0
+
+    * - byte
+      - value(s)
+    * - 0
+      - Y'\ :sub:`00[7:0]`
+    * - 1
+      - Y'\ :sub:`01[5:0]`\  (bits 7--2)
+      - Y'\ :sub:`00[9:8]`\  (bits 1--0)
+    * - 2
+      - Y'\ :sub:`02[3:0]`\  (bits 7--4)
+      - Y'\ :sub:`01[9:6]`\  (bits 3--0)
+    * - 3
+      - unused (bits 7--6)
+      - Y'\ :sub:`02[9:4]`\  (bits 5--0)
+
+Bit-packed representation - Chroma:
+
+.. flat-table::
+    :header-rows:  1
+    :stub-columns: 0
+
+    * - byte
+      - value(s)
+    * - 0
+      - Cb\ :sub:`00[7:0]`
+    * - 1
+      - Cr\ :sub:`00[5:0]`\  (bits 7--2)
+      - Cb\ :sub:`00[9:8]`\  (bits 1--0)
+    * - 2
+      - Cb\ :sub:`01[3:0]`\  (bits 7--4)
+      - Cr\ :sub:`00[9:6]`\  (bits 3--0)
+    * - 3
+      - unused (bits 7--6)
+      - Cb\ :sub:`02[9:4]`\  (bits 5--0)
+    * - 4
+      - Cr\ :sub:`01[7:0]`
+    * - 5
+      - Cb\ :sub:`02[5:0]`\  (bits 7--2)
+      - Cr\ :sub:`01[9:8]`\  (bits 1--0)
+    * - 6
+      - Cr\ :sub:`02[3:0]`\  (bits 7--4)
+      - Cb\ :sub:`02[9:6]`\  (bits 3--0)
+    * - 7
+      - unused (bits 7--6)
+      - Cr\ :sub:`02[9:4]`\  (bits 5--0)
 
 .. _V4L2-PIX-FMT-NV16:
 .. _V4L2-PIX-FMT-NV61:
