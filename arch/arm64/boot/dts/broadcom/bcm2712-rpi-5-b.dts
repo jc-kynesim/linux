@@ -743,8 +743,14 @@ spi10_cs_pins: &spi10_cs_gpio1 {};
 	};
 };
 
+&hevc_dec {
+	clocks = <&firmware_clocks 11>;
+	clock-names = "hevc";
+};
+
 / {
 	__overrides__ {
 		sd_cqe = <&sdio1>, "supports-cqe?";
 	};
 };
+

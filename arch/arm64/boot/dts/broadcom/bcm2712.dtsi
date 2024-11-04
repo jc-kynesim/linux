@@ -1172,20 +1172,6 @@
 			status = "disabled";
 		};
 
-		rpivid: codec@800000 {
-			compatible = "raspberrypi,rpivid-vid-decoder";
-			reg = <0x10 0x00800000  0x0 0x10000>, /* HEVC */
-			      <0x10 0x00840000  0x0 0x1000>;  /* INTC */
-			reg-names = "hevc",
-				    "intc";
-
-			interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH>;
-
-			clocks = <&firmware_clocks 11>;
-			clock-names = "hevc";
-			iommus = <&iommu2>;
-			status = "disabled";
-		};
 
 		sdio1: mmc@fff000 {
 			compatible = "brcm,bcm2712-sdhci";
@@ -1255,6 +1241,16 @@
 			clocks = <&firmware_clocks 7>;
 			clocks-names = "isp_be";
 			status = "okay";
+			iommus = <&iommu2>;
+		};
+
+		hevc_dec: codec@800000 {
+			compatible = "raspberrypi,hevc-dec";
+			reg = <0x00 0x00800000  0x0 0x10000>, /* HEVC */
+			      <0x00 0x00840000  0x0 0x1000>;  /* INTC */
+			reg-names = "hevc",
+				    "intc";
+			interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH>;
 			iommus = <&iommu2>;
 		};
 	};
