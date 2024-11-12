@@ -407,7 +407,7 @@ err_v4l2:
 	return ret;
 }
 
-static void hevc_d_remove(struct platform_device *pdev)
+static int hevc_d_remove(struct platform_device *pdev)
 {
 	struct hevc_d_dev *dev = platform_get_drvdata(pdev);
 
@@ -422,6 +422,8 @@ static void hevc_d_remove(struct platform_device *pdev)
 	v4l2_device_unregister(&dev->v4l2_dev);
 
 	hevc_d_hw_remove(dev);
+
+	return 0;
 }
 
 static const struct of_device_id hevc_d_dt_match[] = {
