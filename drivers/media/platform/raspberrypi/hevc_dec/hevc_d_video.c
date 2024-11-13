@@ -127,9 +127,9 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 	/* For column formats set bytesperline to column height (stride2) */
 	switch (pix_fmt->pixelformat) {
 	default:
-		pix_fmt->pixelformat = V4L2_PIX_FMT_NV12_COL128;
+		pix_fmt->pixelformat = V4L2_PIX_FMT_NV12_COL128M;
 		fallthrough;
-	case V4L2_PIX_FMT_NV12_COL128:
+	case V4L2_PIX_FMT_NV12_COL128M:
 		/* Width rounds up to columns */
 		width = ALIGN(width, 128);
 
@@ -138,7 +138,7 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 		/* column height
 		 * Accept suggested shape if at least min & < 2 * min
 		 */
-		bytesperline = constrain2x(bytesperline, height * 3 / 2);
+		bytesperline = constrain2x(bytesperline, height);
 
 		/* image size
 		 * Again allow plausible variation in case added padding is
@@ -147,7 +147,7 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 		sizeimage = constrain2x(sizeimage, bytesperline * width);
 		break;
 
-	case V4L2_PIX_FMT_NV12_10_COL128:
+	case V4L2_PIX_FMT_NV12_10_COL128M:
 		/* width in pixels (3 pels = 4 bytes) rounded to 128 byte
 		 * columns
 		 */
@@ -159,7 +159,7 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 		/* column height
 		 * Accept suggested shape if at least min & < 2 * min
 		 */
-		bytesperline = constrain2x(bytesperline, height * 3 / 2);
+		bytesperline = constrain2x(bytesperline, height);
 
 		/* image size
 		 * Again allow plausible variation in case added padding is
@@ -176,7 +176,9 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 	pix_fmt->field = V4L2_FIELD_NONE;
 	pix_fmt->plane_fmt[0].bytesperline = bytesperline;
 	pix_fmt->plane_fmt[0].sizeimage = sizeimage;
-	pix_fmt->num_planes = 1;
+	pix_fmt->plane_fmt[1].bytesperline = bytesperline;
+	pix_fmt->plane_fmt[1].sizeimage = sizeimage / 2;
+	pix_fmt->num_planes = 2;
 }
 
 static int hevc_d_querycap(struct file *file, void *priv,
@@ -266,14 +268,14 @@ static u32 pixelformat_from_sps(const struct v4l2_ctrl_hevc_sps * const sps,
 	if (!is_sps_set(sps) || !hevc_d_hevc_validate_sps(sps)) {
 		/* Treat this as an error? For now return both */
 		if (index == 0)
-			pf = V4L2_PIX_FMT_NV12_COL128;
+			pf = V4L2_PIX_FMT_NV12_COL128M;
 		else if (index == 1)
-			pf = V4L2_PIX_FMT_NV12_10_COL128;
+			pf = V4L2_PIX_FMT_NV12_10_COL128M;
 	} else if (index == 0) {
 		if (sps->bit_depth_luma_minus8 == 0)
-			pf = V4L2_PIX_FMT_NV12_COL128;
+			pf = V4L2_PIX_FMT_NV12_COL128M;
 		else if (sps->bit_depth_luma_minus8 == 2)
-			pf = V4L2_PIX_FMT_NV12_10_COL128;
+			pf = V4L2_PIX_FMT_NV12_10_COL128M;
 	}
 
 	return pf;
@@ -482,11 +484,18 @@ static int hevc_d_queue_setup(struct vb2_queue *vq, unsigned int *nbufs,
 		pix_fmt = get_dst_fmt(ctx);
 
 	if (*nplanes) {
-		if (sizes[0] < pix_fmt->plane_fmt[0].sizeimage)
+		if (*nplanes < 2 ||
+		    sizes[0] < pix_fmt->plane_fmt[0].sizeimage ||
+		    sizes[1] < pix_fmt->plane_fmt[1].sizeimage)
 			return -EINVAL;
 	} else {
 		sizes[0] = pix_fmt->plane_fmt[0].sizeimage;
-		*nplanes = 1;
+		if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
+			*nplanes = 1;
+		} else {
+			sizes[1] = pix_fmt->plane_fmt[1].sizeimage;
+			*nplanes = 2;
+		}
 	}
 
 	return 0;
@@ -531,10 +540,12 @@ static int hevc_d_buf_prepare(struct vb2_buffer *vb)
 	else
 		pix_fmt = &ctx->dst_fmt;
 
-	if (vb2_plane_size(vb, 0) < pix_fmt->plane_fmt[0].sizeimage)
+	if (vb2_plane_size(vb, 0) < pix_fmt->plane_fmt[0].sizeimage ||
+	    vb2_plane_size(vb, 1) < pix_fmt->plane_fmt[1].sizeimage)
 		return -EINVAL;
 
 	vb2_set_plane_payload(vb, 0, pix_fmt->plane_fmt[0].sizeimage);
+	vb2_set_plane_payload(vb, 1, pix_fmt->plane_fmt[1].sizeimage);
 
 	return 0;
 }

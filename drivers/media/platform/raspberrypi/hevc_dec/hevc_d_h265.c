@@ -185,10 +185,11 @@ struct hevc_d_dec_env {
 
 	struct vb2_v4l2_buffer *frame_buf;
 	struct vb2_v4l2_buffer *src_buf;
-	unsigned int frame_c_offset;
-	unsigned int frame_stride;
-	dma_addr_t frame_addr;
-	dma_addr_t ref_addrs[16];
+	dma_addr_t frame_luma_addr;
+	unsigned int luma_stride;
+	dma_addr_t frame_chroma_addr;
+	unsigned int chroma_stride;
+	dma_addr_t ref_addrs[16][2];
 	struct hevc_d_q_aux *frame_aux;
 	struct hevc_d_q_aux *col_aux;
 
@@ -1747,10 +1748,12 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		de->bit_copy_gptr = ctx->bitbufs + ctx->p1idx;
 		de->bit_copy_len = 0;
 
-		de->frame_c_offset = ctx->dst_fmt.height * 128;
-		de->frame_stride = ctx->dst_fmt.plane_fmt[0].bytesperline * 128;
-		de->frame_addr =
+		de->luma_stride = ctx->dst_fmt.plane_fmt[0].bytesperline * 128;
+		de->frame_luma_addr =
 			vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 0);
+		de->chroma_stride = de->luma_stride / 2;
+		de->frame_chroma_addr =
+			vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1);
 		de->frame_aux = NULL;
 
 		if (s->sps.bit_depth_luma_minus8 !=
@@ -1763,17 +1766,17 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		}
 		if (s->sps.bit_depth_luma_minus8 == 0) {
 			if (ctx->dst_fmt.pixelformat !=
-						V4L2_PIX_FMT_NV12_COL128) {
+						V4L2_PIX_FMT_NV12_COL128M) {
 				v4l2_err(&dev->v4l2_dev,
-					 "Pixel format %#x != NV12_COL128 for 8-bit output",
+					 "Pixel format %#x != NV12_COL128M for 8-bit output",
 					 ctx->dst_fmt.pixelformat);
 				goto fail;
 			}
 		} else if (s->sps.bit_depth_luma_minus8 == 2) {
 			if (ctx->dst_fmt.pixelformat !=
-						V4L2_PIX_FMT_NV12_10_COL128) {
+						V4L2_PIX_FMT_NV12_10_COL128M) {
 				v4l2_err(&dev->v4l2_dev,
-					 "Pixel format %#x != NV12_10_COL128 for 10-bit output",
+					 "Pixel format %#x != NV12_10_COL128M for 10-bit output",
 					 ctx->dst_fmt.pixelformat);
 				goto fail;
 			}
@@ -1783,17 +1786,19 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 				  s->sps.bit_depth_luma_minus8 + 8);
 			goto fail;
 		}
-		if (run->dst->vb2_buf.num_planes != 1) {
+		if (run->dst->vb2_buf.num_planes != 2) {
 			v4l2_warn(&dev->v4l2_dev, "Capture planes (%d) != 1\n",
 				  run->dst->vb2_buf.num_planes);
 			goto fail;
 		}
-		if (run->dst->planes[0].length <
-		    ctx->dst_fmt.plane_fmt[0].sizeimage) {
+		if (run->dst->planes[0].length < ctx->dst_fmt.plane_fmt[0].sizeimage ||
+		    run->dst->planes[1].length < ctx->dst_fmt.plane_fmt[1].sizeimage) {
 			v4l2_warn(&dev->v4l2_dev,
-				  "Capture plane[0] length (%d) < sizeimage (%d)\n",
+				  "Capture planes length (%d/%d) < sizeimage (%d/%d)\n",
 				  run->dst->planes[0].length,
-				  ctx->dst_fmt.plane_fmt[0].sizeimage);
+				  run->dst->planes[1].length,
+				  ctx->dst_fmt.plane_fmt[0].sizeimage,
+				  ctx->dst_fmt.plane_fmt[1].sizeimage);
 			goto fail;
 		}
 
@@ -1801,8 +1806,10 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		 * Fill in ref planes with our address s.t. if we mess up refs
 		 * somehow then we still have a valid address entry
 		 */
-		for (i = 0; i != 16; ++i)
-			de->ref_addrs[i] = de->frame_addr;
+		for (i = 0; i != 16; ++i) {
+			de->ref_addrs[i][0] = de->frame_luma_addr;
+			de->ref_addrs[i][1] = de->frame_chroma_addr;
+		}
 
 		/*
 		 * Stash initial temporal_mvp flag
@@ -1984,8 +1991,10 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 					  buffer_index);
 		}
 
-		de->ref_addrs[i] =
+		de->ref_addrs[i][0] =
 			vb2_dma_contig_plane_dma_addr(buf, 0);
+		de->ref_addrs[i][1] =
+			vb2_dma_contig_plane_dma_addr(buf, 1);
 	}
 
 	/* Move DPB from temp */
@@ -2117,19 +2126,17 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	apb_write_vc_addr(dev, RPI_COEFFRBASE, de->coeff_base_vc);
 	apb_write_vc_len(dev, RPI_COEFFRSTRIDE, de->coeff_stride);
 
-	apb_write_vc_addr(dev, RPI_OUTYBASE, de->frame_addr);
-	apb_write_vc_addr(dev, RPI_OUTCBASE,
-			  de->frame_addr + de->frame_c_offset);
-	apb_write_vc_len(dev, RPI_OUTYSTRIDE, de->frame_stride);
-	apb_write_vc_len(dev, RPI_OUTCSTRIDE, de->frame_stride);
+	apb_write_vc_addr(dev, RPI_OUTYBASE, de->frame_luma_addr);
+	apb_write_vc_addr(dev, RPI_OUTCBASE, de->frame_chroma_addr);
+	apb_write_vc_len(dev, RPI_OUTYSTRIDE, de->luma_stride);
+	apb_write_vc_len(dev, RPI_OUTCSTRIDE, de->chroma_stride);
 
 	for (i = 0; i < 16; i++) {
 		// Strides are in fact unused but fill in anyway
-		apb_write_vc_addr(dev, 0x9000 + 16 * i, de->ref_addrs[i]);
-		apb_write_vc_len(dev, 0x9004 + 16 * i, de->frame_stride);
-		apb_write_vc_addr(dev, 0x9008 + 16 * i,
-				  de->ref_addrs[i] + de->frame_c_offset);
-		apb_write_vc_len(dev, 0x900C + 16 * i, de->frame_stride);
+		apb_write_vc_addr(dev, 0x9000 + 16 * i, de->ref_addrs[i][0]);
+		apb_write_vc_len(dev, 0x9004 + 16 * i, de->luma_stride);
+		apb_write_vc_addr(dev, 0x9008 + 16 * i, de->ref_addrs[i][1]);
+		apb_write_vc_len(dev, 0x900C + 16 * i, de->chroma_stride);
 	}
 
 	apb_write(dev, RPI_CONFIG2, de->rpi_config2);
@@ -2622,9 +2629,9 @@ static int try_ctrl_sps(struct v4l2_ctrl *ctrl)
 		return 0;
 
 	if ((sps->bit_depth_luma_minus8 == 0 &&
-	     ctx->dst_fmt.pixelformat != V4L2_PIX_FMT_NV12_COL128) ||
+	     ctx->dst_fmt.pixelformat != V4L2_PIX_FMT_NV12_COL128M) ||
 	    (sps->bit_depth_luma_minus8 == 2 &&
-	     ctx->dst_fmt.pixelformat != V4L2_PIX_FMT_NV12_10_COL128)) {
+	     ctx->dst_fmt.pixelformat != V4L2_PIX_FMT_NV12_10_COL128M)) {
 		v4l2_warn(&dev->v4l2_dev,
 			  "SPS luma depth %d does not match capture format\n",
 			  sps->bit_depth_luma_minus8 + 8);
