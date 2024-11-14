@@ -135,14 +135,10 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 
 		/* 16 aligned height - not sure we even need that */
 		height = ALIGN(height, 16);
-		/* bytesperline is the same as width */
-		bytesperline = constrain2x(bytesperline, width);
 
-		/* image size
-		 * Again allow plausible variation in case added padding is
-		 * required
-		 */
-		sizeimage = constrain2x(sizeimage, bytesperline * width);
+		/* column height is sizeimage / bytesperline */
+		bytesperline = width;
+		sizeimage = bytesperline * height;
 		break;
 
 	case V4L2_PIX_FMT_NV12_10_COL128M:
@@ -151,20 +147,9 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 		 */
 		width = ALIGN(((width + 2) / 3), 32) * 3;
 
-		/* 16-aligned height. */
-		height = ALIGN(height, 16);
-
-		/* column height
-		 * Accept suggested shape if at least min & < 2 * min
-		 */
-		bytesperline = constrain2x(bytesperline, height);
-
-		/* image size
-		 * Again allow plausible variation in case added padding is
-		 * required
-		 */
-		sizeimage = constrain2x(sizeimage,
-					bytesperline * width * 4 / 3);
+		/* column height is sizeimage / bytesperline */
+		bytesperline = width * 4 / 3;
+		sizeimage = bytesperline * height;
 		break;
 	}
 

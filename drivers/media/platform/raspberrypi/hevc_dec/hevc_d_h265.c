@@ -1748,7 +1748,7 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		de->bit_copy_gptr = ctx->bitbufs + ctx->p1idx;
 		de->bit_copy_len = 0;
 
-		de->luma_stride = ctx->dst_fmt.plane_fmt[0].bytesperline * 128;
+		de->luma_stride = ctx->dst_fmt.height * 128;
 		de->frame_luma_addr =
 			vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 0);
 		de->chroma_stride = de->luma_stride / 2;
