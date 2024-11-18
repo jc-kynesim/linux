@@ -135,10 +135,8 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 
 		/* 16 aligned height - not sure we even need that */
 		height = ALIGN(height, 16);
-		/* column height
-		 * Accept suggested shape if at least min & < 2 * min
-		 */
-		bytesperline = constrain2x(bytesperline, height);
+		/* bytesperline is the same as width */
+		bytesperline = constrain2x(bytesperline, width);
 
 		/* image size
 		 * Again allow plausible variation in case added padding is
