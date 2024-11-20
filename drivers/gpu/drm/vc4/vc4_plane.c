@@ -1472,7 +1472,7 @@ static int vc4_plane_mode_set(struct drm_plane *plane,
 				 * padded width
 				 */
 				gem_obj = drm_fb_dma_get_gem_obj(fb, i);
-				pitch[i] = gem_obj->base.size / fb->pitches[i];
+				pitch[i] = drm_framebuffer_plane_height(fb->height, fb, i);
 				break;
 			default:
 				pitch[i] = VC4_SET_FIELD(param, SCALER_TILE_HEIGHT);
@@ -1951,7 +1951,7 @@ static int vc6_plane_mode_set(struct drm_plane *plane,
 				 * padded width
 				 */
 				gem_obj = drm_fb_dma_get_gem_obj(fb, i);
-				pitch[i] = gem_obj->base.size / fb->pitches[i];
+				pitch[i] = drm_framebuffer_plane_height(fb->height, fb, i);
 				break;
 			default:
 				pitch[i] = VC4_SET_FIELD(param, SCALER_TILE_HEIGHT);
