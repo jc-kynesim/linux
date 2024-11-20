@@ -132,9 +132,7 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 	case V4L2_PIX_FMT_NV12_COL128M:
 		/* Width rounds up to columns */
 		width = ALIGN(width, 128);
-
-		/* 16 aligned height - not sure we even need that */
-		height = ALIGN(height, 16);
+		height = ALIGN(height, 8);
 
 		/* column height is sizeimage / bytesperline */
 		bytesperline = width;
@@ -146,6 +144,7 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 		 * columns
 		 */
 		width = ALIGN(((width + 2) / 3), 32) * 3;
+		height = ALIGN(height, 8);
 
 		/* column height is sizeimage / bytesperline */
 		bytesperline = width * 4 / 3;
