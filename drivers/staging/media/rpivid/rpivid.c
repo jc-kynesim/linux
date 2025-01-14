@@ -317,9 +317,17 @@ static const struct v4l2_m2m_ops rpivid_m2m_ops = {
 	.device_run	= rpivid_device_run,
 };
 
+static void rpivid_media_req_queue(struct media_request *req)
+{
+#if OPT_MEDIA_MANUAL_COMPLETE
+	media_request_mark_manual_completion(req);
+#endif
+	v4l2_m2m_request_queue(req);
+}
+
 static const struct media_device_ops rpivid_m2m_media_ops = {
 	.req_validate	= rpivid_request_validate,
-	.req_queue	= v4l2_m2m_request_queue,
+	.req_queue	= rpivid_media_req_queue,
 };
 
 static int rpivid_probe(struct platform_device *pdev)

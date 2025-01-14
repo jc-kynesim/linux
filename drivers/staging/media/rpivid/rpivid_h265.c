@@ -211,7 +211,7 @@ struct rpivid_dec_env {
 	u16 slice_msgs[SLICE_MSGS_MAX];
 	u8 scaling_factors[NUM_SCALING_FACTORS];
 
-#if USE_REQUEST_PIN
+#if USE_REQUEST_PIN || OPT_MEDIA_MANUAL_COMPLETE
 	struct media_request *req_pin;
 #else
 	struct media_request_object *req_obj;
@@ -2114,7 +2114,10 @@ static void phase2_cb(struct rpivid_dev *const dev, void *v)
 	v4l2_m2m_buf_done(de->frame_buf, VB2_BUF_STATE_DONE);
 	de->frame_buf = NULL;
 
-#if USE_REQUEST_PIN
+#if OPT_MEDIA_MANUAL_COMPLETE
+	media_request_manual_complete(de->req_pin);
+	de->req_pin = NULL;
+#elif USE_REQUEST_PIN
 	media_request_unpin(de->req_pin);
 	de->req_pin = NULL;
 #else
@@ -2201,7 +2204,11 @@ static void phase1_err_fin(struct rpivid_dev *const dev,
 	if (de->frame_buf)
 		v4l2_m2m_buf_done(de->frame_buf, VB2_BUF_STATE_ERROR);
 	de->frame_buf = NULL;
-#if USE_REQUEST_PIN
+#if OPT_MEDIA_MANUAL_COMPLETE
+	if (de->req_pin)
+		media_request_manual_complete(de->req_pin);
+	de->req_pin = NULL;
+#elif USE_REQUEST_PIN
 	if (de->req_pin)
 		media_request_unpin(de->req_pin);
 	de->req_pin = NULL;
@@ -2538,6 +2545,9 @@ static void rpivid_h265_trigger(struct rpivid_ctx *ctx)
 	case RPIVID_DECODE_SLICE_CONTINUE:
 		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 						 VB2_BUF_STATE_DONE);
+#if OPT_MEDIA_MANUAL_COMPLETE
+		media_request_manual_complete(de->src_buf->vb2_buf.req_obj.req);
+#endif
 		xtrace_ok(dev, de);
 		break;
 
@@ -2553,12 +2563,15 @@ static void rpivid_h265_trigger(struct rpivid_ctx *ctx)
 		xtrace_fin(dev, de);
 		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 						 VB2_BUF_STATE_ERROR);
+#if OPT_MEDIA_MANUAL_COMPLETE
+		media_request_manual_complete(de->src_buf->vb2_buf.req_obj.req);
+#endif
 		break;
 
 	case RPIVID_DECODE_PHASE1:
 		ctx->dec0 = NULL;
 
-#if !USE_REQUEST_PIN
+#if !USE_REQUEST_PIN && !OPT_MEDIA_MANUAL_COMPLETE
 		/* Alloc a new request object - needs to be alloced dynamically
 		 * as the media request will release it some random time after
 		 * it is completed
@@ -2582,7 +2595,9 @@ static void rpivid_h265_trigger(struct rpivid_ctx *ctx)
 		de->src_buf = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 		de->frame_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 
-#if USE_REQUEST_PIN
+#if OPT_MEDIA_MANUAL_COMPLETE
+		de->req_pin = de->src_buf->vb2_buf.req_obj.req;
+#elif USE_REQUEST_PIN
 		de->req_pin = de->src_buf->vb2_buf.req_obj.req;
 		media_request_pin(de->req_pin);
 #else
