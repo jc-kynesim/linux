@@ -23,8 +23,6 @@
 #define DEBUG_TRACE_P1_CMD 0
 #define DEBUG_TRACE_EXECUTION 0
 
-#define USE_REQUEST_PIN 1
-
 #if DEBUG_TRACE_EXECUTION
 #define xtrace_in(dev_, de_)\
 	v4l2_info(&(dev_)->v4l2_dev, "%s[%d]: in\n",   __func__,\
@@ -208,11 +206,7 @@ struct hevc_d_dec_env {
 	u16 slice_msgs[SLICE_MSGS_MAX];
 	u8 scaling_factors[NUM_SCALING_FACTORS];
 
-#if USE_REQUEST_PIN
 	struct media_request *req_pin;
-#else
-	struct media_request_object *req_obj;
-#endif
 	struct hevc_d_hw_irq_ent irq_ent;
 };
 
@@ -259,17 +253,6 @@ struct hevc_d_dec_state {
 	unsigned int prev_ctb_x;        /* CTB X,Y of start_ts - 1 */
 	unsigned int prev_ctb_y;
 };
-
-#if !USE_REQUEST_PIN
-static void dst_req_obj_release(struct media_request_object *object)
-{
-	kfree(object);
-}
-
-static const struct media_request_object_ops dst_req_obj_ops = {
-	.release = dst_req_obj_release,
-};
-#endif
 
 static inline int clip_int(const int x, const int lo, const int hi)
 {
@@ -2102,13 +2085,8 @@ static void phase2_cb(struct hevc_d_dev *const dev, void *v)
 	v4l2_m2m_buf_done(de->frame_buf, VB2_BUF_STATE_DONE);
 	de->frame_buf = NULL;
 
-#if USE_REQUEST_PIN
-	media_request_unpin(de->req_pin);
+	media_request_manual_complete(de->req_pin);
 	de->req_pin = NULL;
-#else
-	media_request_object_complete(de->req_obj);
-	de->req_obj = NULL;
-#endif
 
 	xtrace_ok(dev, de);
 	dec_env_delete(de);
@@ -2176,15 +2154,9 @@ static void phase1_err_fin(struct hevc_d_dev *const dev,
 	if (de->frame_buf)
 		v4l2_m2m_buf_done(de->frame_buf, VB2_BUF_STATE_ERROR);
 	de->frame_buf = NULL;
-#if USE_REQUEST_PIN
 	if (de->req_pin)
-		media_request_unpin(de->req_pin);
+		media_request_manual_complete(de->req_pin);
 	de->req_pin = NULL;
-#else
-	if (de->req_obj)
-		media_request_object_complete(de->req_obj);
-	de->req_obj = NULL;
-#endif
 
 	dec_env_delete(de);
 
@@ -2497,8 +2469,12 @@ static void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 {
 	struct hevc_d_dev *const dev = ctx->dev;
 	struct hevc_d_dec_env *const de = ctx->dec0;
+	struct vb2_v4l2_buffer *src_buf;
+	struct media_request *req;
 
 	xtrace_in(dev, de);
+	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
+	req = src_buf->vb2_buf.req_obj.req;
 
 	switch (!de ? HEVC_D_DECODE_ERROR_CONTINUE : de->state) {
 	case HEVC_D_DECODE_SLICE_START:
@@ -2507,6 +2483,7 @@ static void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 	case HEVC_D_DECODE_SLICE_CONTINUE:
 		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 						 VB2_BUF_STATE_DONE);
+		media_request_manual_complete(req);
 		xtrace_ok(dev, de);
 		break;
 
@@ -2522,43 +2499,19 @@ static void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 		xtrace_fin(dev, de);
 		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 						 VB2_BUF_STATE_ERROR);
+		media_request_manual_complete(req);
 		break;
 
 	case HEVC_D_DECODE_PHASE1:
 		ctx->dec0 = NULL;
 
-#if !USE_REQUEST_PIN
-		/* Alloc a new request object - needs to be alloced dynamically
-		 * as the media request will release it some random time after
-		 * it is completed
-		 */
-		de->req_obj = kmalloc(sizeof(*de->req_obj), GFP_KERNEL);
-		if (!de->req_obj) {
-			xtrace_fail(dev, de);
-			dec_env_delete(de);
-			v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev,
-							 ctx->fh.m2m_ctx,
-							 VB2_BUF_STATE_ERROR);
-			break;
-		}
-		media_request_object_init(de->req_obj);
-#warning probably needs to _get the req obj too
-#endif
 		ctx->p1idx = (ctx->p1idx + 1 >= HEVC_D_P1BUF_COUNT) ?
 							0 : ctx->p1idx + 1;
 
 		/* We know we have src & dst so no need to test */
 		de->src_buf = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 		de->frame_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
-
-#if USE_REQUEST_PIN
-		de->req_pin = de->src_buf->vb2_buf.req_obj.req;
-		media_request_pin(de->req_pin);
-#else
-		media_request_object_bind(de->src_buf->vb2_buf.req_obj.req,
-					  &dst_req_obj_ops, de, false,
-					  de->req_obj);
-#endif
+		de->req_pin = req;
 
 		/* We could get rid of the src buffer here if we've already
 		 * copied it, but we don't copy the last buffer unless it

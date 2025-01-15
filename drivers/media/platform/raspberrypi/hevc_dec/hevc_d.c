@@ -277,6 +277,12 @@ static int hevc_d_release(struct file *file)
 	return 0;
 }
 
+static void hevc_d_media_req_queue(struct media_request *req)
+{
+	media_request_mark_manual_completion(req);
+	v4l2_m2m_request_queue(req);
+}
+
 static const struct v4l2_file_operations hevc_d_fops = {
 	.owner		= THIS_MODULE,
 	.open		= hevc_d_open,
@@ -302,7 +308,7 @@ static const struct v4l2_m2m_ops hevc_d_m2m_ops = {
 
 static const struct media_device_ops hevc_d_m2m_media_ops = {
 	.req_validate	= hevc_d_request_validate,
-	.req_queue	= v4l2_m2m_request_queue,
+	.req_queue	= hevc_d_media_req_queue,
 };
 
 static int hevc_d_probe(struct platform_device *pdev)

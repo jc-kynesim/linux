@@ -93,4 +93,5 @@ fail:
 	/* We really shouldn't get here but tidy up what we can */
 	v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 					 VB2_BUF_STATE_ERROR);
+	media_request_manual_complete(src_req);
 }
