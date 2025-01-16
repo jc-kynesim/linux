@@ -176,7 +176,6 @@ struct hevc_d_dev {
 	struct platform_device	*pdev;
 	struct device		*dev;
 	struct v4l2_m2m_dev	*m2m_dev;
-	const struct hevc_d_dec_ops *dec_ops;
 
 	/* Device file mutex */
 	struct mutex		dev_mutex;
@@ -193,7 +192,6 @@ struct hevc_d_dev {
 	struct hevc_d_hw_irq_ctrl ic_active2;
 };
 
-extern const struct hevc_d_dec_ops hevc_d_dec_ops_h265;
 extern const struct v4l2_ctrl_ops hevc_d_hevc_sps_ctrl_ops;
 extern const struct v4l2_ctrl_ops hevc_d_hevc_pps_ctrl_ops;
 

@@ -20,7 +20,7 @@
 #include "hevc_d.h"
 #include "hevc_d_hw.h"
 #include "hevc_d_video.h"
-#include "hevc_d_dec.h"
+#include "hevc_d_h265.h"
 
 #define HEVC_D_DECODE_SRC	BIT(0)
 #define HEVC_D_DECODE_DST	BIT(1)
@@ -586,8 +586,7 @@ static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 	if (ret)
 		goto fail_cleanup;
 
-	if (dev->dec_ops->start)
-		ret = dev->dec_ops->start(ctx);
+	ret = hevc_d_h265_start(ctx);
 	if (ret)
 		goto fail_stop_clock;
 
@@ -610,8 +609,7 @@ static void hevc_d_stop_streaming(struct vb2_queue *vq)
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		ctx->src_stream_on = 0;
-		if (dev->dec_ops->stop)
-			dev->dec_ops->stop(ctx);
+		hevc_d_h265_stop(ctx);
 	} else {
 		ctx->dst_stream_on = 0;
 	}

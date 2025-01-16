@@ -19,6 +19,7 @@
 #include "hevc_d.h"
 #include "hevc_d_hw.h"
 #include "hevc_d_video.h"
+#include "hevc_d_h265.h"
 
 #define DEBUG_TRACE_P1_CMD 0
 #define DEBUG_TRACE_EXECUTION 0
@@ -2306,7 +2307,7 @@ static void h265_ctx_uninit(struct hevc_d_dev *const dev, struct hevc_d_ctx *ctx
 		gptr_free(dev, ctx->coeff_bufs + i);
 }
 
-static void hevc_d_h265_stop(struct hevc_d_ctx *ctx)
+void hevc_d_h265_stop(struct hevc_d_ctx *ctx)
 {
 	struct hevc_d_dev *const dev = ctx->dev;
 
@@ -2314,7 +2315,7 @@ static void hevc_d_h265_stop(struct hevc_d_ctx *ctx)
 	h265_ctx_uninit(dev, ctx);
 }
 
-static int hevc_d_h265_start(struct hevc_d_ctx *ctx)
+int hevc_d_h265_start(struct hevc_d_ctx *ctx)
 {
 	struct hevc_d_dev *const dev = ctx->dev;
 	unsigned int i;
@@ -2441,6 +2442,83 @@ const struct hevc_d_dec_ops hevc_d_dec_ops_h265 = {
 	.stop = hevc_d_h265_stop,
 	.trigger = hevc_d_h265_trigger,
 };
+
+void hevc_d_h265_run(void *priv)
+{
+	struct hevc_d_ctx *const ctx = priv;
+	struct hevc_d_dev *const dev = ctx->dev;
+	struct hevc_d_run run = {};
+	struct media_request *src_req;
+
+	run.src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
+	run.dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
+
+	if (!run.src || !run.dst) {
+		v4l2_err(&dev->v4l2_dev, "%s: Missing buffer: src=%p, dst=%p\n",
+			 __func__, run.src, run.dst);
+		goto fail;
+	}
+
+	/* Apply request(s) controls */
+	src_req = run.src->vb2_buf.req_obj.req;
+	if (!src_req) {
+		v4l2_err(&dev->v4l2_dev, "%s: Missing request\n", __func__);
+		goto fail;
+	}
+
+	v4l2_ctrl_request_setup(src_req, &ctx->hdl);
+
+	switch (ctx->src_fmt.pixelformat) {
+	case V4L2_PIX_FMT_HEVC_SLICE:
+	{
+		const struct v4l2_ctrl *ctrl;
+
+		run.h265.sps =
+			hevc_d_find_control_data(ctx,
+						 V4L2_CID_STATELESS_HEVC_SPS);
+		run.h265.pps =
+			hevc_d_find_control_data(ctx,
+						 V4L2_CID_STATELESS_HEVC_PPS);
+		run.h265.dec =
+			hevc_d_find_control_data(ctx,
+						 V4L2_CID_STATELESS_HEVC_DECODE_PARAMS);
+
+		ctrl = hevc_d_find_ctrl(ctx,
+					V4L2_CID_STATELESS_HEVC_SLICE_PARAMS);
+		if (!ctrl || !ctrl->elems) {
+			v4l2_err(&dev->v4l2_dev, "%s: Missing slice params\n",
+				 __func__);
+			goto fail;
+		}
+		run.h265.slice_ents = ctrl->elems;
+		run.h265.slice_params = ctrl->p_cur.p;
+
+		run.h265.scaling_matrix =
+			hevc_d_find_control_data(ctx,
+						 V4L2_CID_STATELESS_HEVC_SCALING_MATRIX);
+		break;
+	}
+
+	default:
+		break;
+	}
+
+	v4l2_m2m_buf_copy_metadata(run.src, run.dst, true);
+
+	hevc_d_h265_setup(ctx, &run);
+
+	/* Complete request(s) controls */
+	v4l2_ctrl_request_complete(src_req, &ctx->hdl);
+
+	hevc_d_h265_trigger(ctx);
+	return;
+
+fail:
+	/* We really shouldn't get here but tidy up what we can */
+	v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
+					 VB2_BUF_STATE_ERROR);
+	media_request_manual_complete(src_req);
+}
 
 static int try_ctrl_sps(struct v4l2_ctrl *ctrl)
 {

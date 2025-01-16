@@ -23,7 +23,7 @@
 #include "hevc_d.h"
 #include "hevc_d_video.h"
 #include "hevc_d_hw.h"
-#include "hevc_d_dec.h"
+#include "hevc_d_h265.h"
 
 static const struct hevc_d_control hevc_d_ctrls[] = {
 	{
@@ -304,7 +304,7 @@ static const struct video_device hevc_d_video_device = {
 };
 
 static const struct v4l2_m2m_ops hevc_d_m2m_ops = {
-	.device_run	= hevc_d_device_run,
+	.device_run	= hevc_d_h265_run,
 };
 
 static const struct media_device_ops hevc_d_m2m_media_ops = {
@@ -332,8 +332,6 @@ static int hevc_d_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to probe hardware - %d\n", ret);
 		return ret;
 	}
-
-	dev->dec_ops = &hevc_d_dec_ops_h265;
 
 	mutex_init(&dev->dev_mutex);
 

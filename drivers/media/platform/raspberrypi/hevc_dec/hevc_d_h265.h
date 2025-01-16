@@ -11,9 +11,12 @@
  * Copyright (C) 2018 Bootlin
  */
 
-#ifndef _HEVC_D_DEC_H_
-#define _HEVC_D_DEC_H_
+#ifndef _HEVC_D_265_H_
+#define _HEVC_D_265_H_
 
-void hevc_d_device_run(void *priv);
+void hevc_d_h265_stop(struct hevc_d_ctx *ctx);
+int hevc_d_h265_start(struct hevc_d_ctx *ctx);
+
+void hevc_d_h265_run(void * priv);
 
 #endif
