@@ -142,8 +142,6 @@ struct hevc_d_q_aux {
 
 enum hevc_d_decode_state {
 	HEVC_D_DECODE_SLICE_START,
-	HEVC_D_DECODE_SLICE_CONTINUE,
-	HEVC_D_DECODE_ERROR_CONTINUE,
 	HEVC_D_DECODE_ERROR_DONE,
 	HEVC_D_DECODE_PHASE1,
 	HEVC_D_DECODE_END,
@@ -199,9 +197,6 @@ struct hevc_d_dec_env {
 	u32 pu_stride;
 	u32 coeff_stride;
 
-	struct hevc_d_gptr *bit_copy_gptr;
-	size_t bit_copy_len;
-
 #define SLICE_MSGS_MAX (2 * HEVC_MAX_REFS * 8 + 3)
 	u16 slice_msgs[SLICE_MSGS_MAX];
 	u8 scaling_factors[NUM_SCALING_FACTORS];
@@ -238,7 +233,6 @@ struct hevc_d_dec_state {
 	bool mk_aux;
 
 	/* Temp vars per run - don't actually need to persist */
-	u8 *src_buf;
 	dma_addr_t src_addr;
 	const struct v4l2_ctrl_hevc_slice_params *sh;
 	const struct v4l2_ctrl_hevc_decode_params *dec;
@@ -607,23 +601,8 @@ static int write_bitstream(struct hevc_d_dec_env *const de,
 	const int rpi_use_emu = 1;
 	unsigned int offset = s->sh->data_byte_offset;
 	const unsigned int len = (s->sh->bit_size + 7) / 8 - offset;
-	dma_addr_t addr;
+	dma_addr_t addr = s->src_addr + offset;
 
-	if (s->src_addr != 0) {
-		addr = s->src_addr + offset;
-	} else {
-		if (len + de->bit_copy_len > de->bit_copy_gptr->size) {
-			v4l2_warn(&de->ctx->dev->v4l2_dev,
-				  "Bit copy buffer overflow: size=%zu, offset=%zu, len=%u\n",
-				  de->bit_copy_gptr->size,
-				  de->bit_copy_len, len);
-			return -ENOMEM;
-		}
-		memcpy(de->bit_copy_gptr->ptr + de->bit_copy_len,
-		       s->src_buf + offset, len);
-		addr = de->bit_copy_gptr->addr + de->bit_copy_len;
-		de->bit_copy_len += (len + 63) & ~63;
-	}
 	offset = addr & 63;
 
 	p1_apb_write(de, RPI_BFBASE, dma_to_axi_addr(addr));
@@ -1491,7 +1470,6 @@ static void setup_colmv(struct hevc_d_ctx *const ctx, struct hevc_d_run *run,
 		(ALIGN(s->sps.pic_height_in_luma_samples, 64) >> 4);
 }
 
-/* Can be called from irq context */
 static struct hevc_d_dec_env *dec_env_new(struct hevc_d_ctx *const ctx)
 {
 	struct hevc_d_dec_env *de;
@@ -1650,220 +1628,166 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	unsigned int i;
 	int rv;
 	bool slice_temporal_mvp;
-	bool frame_end;
+	unsigned int ctb_size_y;
+	bool sps_changed = false;
 
 	xtrace_in(dev, de);
 	s->sh = NULL;  /* Avoid use until in the slice loop */
 
-	frame_end =
-		((run->src->flags & V4L2_BUF_FLAG_M2M_HOLD_CAPTURE_BUF) == 0);
-
 	slice_temporal_mvp = (sh0->flags &
 		   V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_TEMPORAL_MVP_ENABLED);
 
-	if (de && de->state != HEVC_D_DECODE_END) {
-		switch (de->state) {
-		case HEVC_D_DECODE_SLICE_CONTINUE:
-			break;
-		default:
-			v4l2_err(&dev->v4l2_dev, "%s: Unexpected state: %d\n",
-				 __func__, de->state);
-			fallthrough;
-		case HEVC_D_DECODE_ERROR_CONTINUE:
-			/* Uncleared error - fail now */
+	if (de) {
+		v4l2_warn(&dev->v4l2_dev, "Decode env set unexpectedly");
+		goto fail;
+	}
+
+	/* Frame start */
+
+	if (!is_sps_set(run->h265.sps)) {
+		v4l2_warn(&dev->v4l2_dev, "SPS never set\n");
+		goto fail;
+	}
+	/* Can't check for PPS easily as all 0's looks valid */
+
+	if (memcmp(&s->sps, run->h265.sps, sizeof(s->sps)) != 0) {
+		/* SPS changed */
+		memcpy(&s->sps, run->h265.sps, sizeof(s->sps));
+		sps_changed = true;
+	}
+	if (sps_changed ||
+	    memcmp(&s->pps, run->h265.pps, sizeof(s->pps)) != 0) {
+		/* SPS changed */
+		memcpy(&s->pps, run->h265.pps, sizeof(s->pps));
+
+		/* Recalc stuff as required */
+		rv = updated_ps(s);
+		if (rv)
+			goto fail;
+	}
+
+	de = dec_env_new(ctx);
+	if (!de) {
+		v4l2_err(&dev->v4l2_dev, "Failed to find free decode env\n");
+		goto fail;
+	}
+	ctx->dec0 = de;
+
+	ctb_size_y =
+		1U << (s->sps.log2_min_luma_coding_block_size_minus3 +
+		       3 + s->sps.log2_diff_max_min_luma_coding_block_size);
+
+	de->pic_width_in_ctbs_y =
+		(s->sps.pic_width_in_luma_samples + ctb_size_y - 1) /
+			ctb_size_y; /* 7-15 */
+	de->pic_height_in_ctbs_y =
+		(s->sps.pic_height_in_luma_samples + ctb_size_y - 1) /
+			ctb_size_y; /* 7-17 */
+	de->cmd_len = 0;
+	de->dpbno_col = ~0U;
+
+	de->luma_stride = ctx->dst_fmt.height * 128;
+	de->frame_luma_addr =
+		vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 0);
+	de->chroma_stride = de->luma_stride / 2;
+	de->frame_chroma_addr =
+		vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1);
+	de->frame_aux = NULL;
+
+	if (s->sps.bit_depth_luma_minus8 !=
+	    s->sps.bit_depth_chroma_minus8) {
+		v4l2_warn(&dev->v4l2_dev,
+			  "Chroma depth (%d) != Luma depth (%d)\n",
+			  s->sps.bit_depth_chroma_minus8 + 8,
+			  s->sps.bit_depth_luma_minus8 + 8);
+		goto fail;
+	}
+	if (s->sps.bit_depth_luma_minus8 == 0) {
+		if (ctx->dst_fmt.pixelformat != V4L2_PIX_FMT_NV12MT_COL128) {
+			v4l2_err(&dev->v4l2_dev,
+				 "Pixel format %#x != NV12MT_COL128 for 8-bit output",
+				 ctx->dst_fmt.pixelformat);
 			goto fail;
 		}
-
-		if (s->slice_temporal_mvp != slice_temporal_mvp) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Slice Temporal MVP non-constant\n");
+	} else if (s->sps.bit_depth_luma_minus8 == 2) {
+		if (ctx->dst_fmt.pixelformat !=
+					V4L2_PIX_FMT_NV12MT_10_COL128) {
+			v4l2_err(&dev->v4l2_dev,
+				 "Pixel format %#x != NV12MT_10_COL128 for 10-bit output",
+				 ctx->dst_fmt.pixelformat);
 			goto fail;
 		}
 	} else {
-		/* Frame start */
-		unsigned int ctb_size_y;
-		bool sps_changed = false;
+		v4l2_warn(&dev->v4l2_dev, "Luma depth (%d) unsupported\n",
+			  s->sps.bit_depth_luma_minus8 + 8);
+		goto fail;
+	}
+	if (run->dst->vb2_buf.num_planes != 2) {
+		v4l2_warn(&dev->v4l2_dev, "Capture planes (%d) != 2\n",
+			  run->dst->vb2_buf.num_planes);
+		goto fail;
+	}
+	if (run->dst->planes[0].length < ctx->dst_fmt.plane_fmt[0].sizeimage ||
+	    run->dst->planes[1].length < ctx->dst_fmt.plane_fmt[1].sizeimage) {
+		v4l2_warn(&dev->v4l2_dev,
+			  "Capture planes length (%d/%d) < sizeimage (%d/%d)\n",
+			  run->dst->planes[0].length,
+			  run->dst->planes[1].length,
+			  ctx->dst_fmt.plane_fmt[0].sizeimage,
+			  ctx->dst_fmt.plane_fmt[1].sizeimage);
+		goto fail;
+	}
 
-		if (!is_sps_set(run->h265.sps)) {
-			v4l2_warn(&dev->v4l2_dev, "SPS never set\n");
-			goto fail;
-		}
-		/* Can't check for PPS easily as all 0's looks valid */
+	/*
+	 * Fill in ref planes with our address s.t. if we mess up refs
+	 * somehow then we still have a valid address entry
+	 */
+	for (i = 0; i != 16; ++i) {
+		de->ref_addrs[i][0] = de->frame_luma_addr;
+		de->ref_addrs[i][1] = de->frame_chroma_addr;
+	}
 
-		if (memcmp(&s->sps, run->h265.sps, sizeof(s->sps)) != 0) {
-			/* SPS changed */
-			memcpy(&s->sps, run->h265.sps, sizeof(s->sps));
-			sps_changed = true;
-		}
-		if (sps_changed ||
-		    memcmp(&s->pps, run->h265.pps, sizeof(s->pps)) != 0) {
-			/* SPS changed */
-			memcpy(&s->pps, run->h265.pps, sizeof(s->pps));
+	/*
+	 * Stash initial temporal_mvp flag
+	 * This must be the same for all pic slices (7.4.7.1)
+	 */
+	s->slice_temporal_mvp = slice_temporal_mvp;
 
-			/* Recalc stuff as required */
-			rv = updated_ps(s);
-			if (rv)
-				goto fail;
-		}
+	/*
+	 * Need Aux ents for all (ref) DPB ents if temporal MV could
+	 * be enabled for any pic
+	 */
+	s->use_aux = ((s->sps.flags &
+		       V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED) != 0);
+	s->mk_aux = s->use_aux &&
+		    (s->sps.sps_max_sub_layers_minus1 >= sh0->nuh_temporal_id_plus1 ||
+		     is_ref_unit_type(sh0->nal_unit_type));
 
-		de = dec_env_new(ctx);
-		if (!de) {
-			v4l2_err(&dev->v4l2_dev,
-				 "Failed to find free decode env\n");
-			goto fail;
-		}
-		ctx->dec0 = de;
+	/* Phase 2 reg pre-calc */
+	de->rpi_config2 = mk_config2(s);
+	de->rpi_framesize = (s->sps.pic_height_in_luma_samples << 16) |
+			    s->sps.pic_width_in_luma_samples;
+	de->rpi_currpoc = sh0->slice_pic_order_cnt;
 
-		ctb_size_y =
-			1U << (s->sps.log2_min_luma_coding_block_size_minus3 +
-			       3 +
-			       s->sps.log2_diff_max_min_luma_coding_block_size);
+	if (s->sps.flags &
+	    V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED) {
+		setup_colmv(ctx, run, s);
+	}
 
-		de->pic_width_in_ctbs_y =
-			(s->sps.pic_width_in_luma_samples + ctb_size_y - 1) /
-				ctb_size_y; /* 7-15 */
-		de->pic_height_in_ctbs_y =
-			(s->sps.pic_height_in_luma_samples + ctb_size_y - 1) /
-				ctb_size_y; /* 7-17 */
-		de->cmd_len = 0;
-		de->dpbno_col = ~0U;
+	s->slice_idx = 0;
 
-		de->bit_copy_gptr = ctx->bitbufs + ctx->p1idx;
-		de->bit_copy_len = 0;
-
-		de->luma_stride = ctx->dst_fmt.height * 128;
-		de->frame_luma_addr =
-			vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 0);
-		de->chroma_stride = de->luma_stride / 2;
-		de->frame_chroma_addr =
-			vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1);
-		de->frame_aux = NULL;
-
-		if (s->sps.bit_depth_luma_minus8 !=
-		    s->sps.bit_depth_chroma_minus8) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Chroma depth (%d) != Luma depth (%d)\n",
-				  s->sps.bit_depth_chroma_minus8 + 8,
-				  s->sps.bit_depth_luma_minus8 + 8);
-			goto fail;
-		}
-		if (s->sps.bit_depth_luma_minus8 == 0) {
-			if (ctx->dst_fmt.pixelformat !=
-						V4L2_PIX_FMT_NV12MT_COL128) {
-				v4l2_err(&dev->v4l2_dev,
-					 "Pixel format %#x != NV12MT_COL128 for 8-bit output",
-					 ctx->dst_fmt.pixelformat);
-				goto fail;
-			}
-		} else if (s->sps.bit_depth_luma_minus8 == 2) {
-			if (ctx->dst_fmt.pixelformat !=
-						V4L2_PIX_FMT_NV12MT_10_COL128) {
-				v4l2_err(&dev->v4l2_dev,
-					 "Pixel format %#x != NV12MT_10_COL128 for 10-bit output",
-					 ctx->dst_fmt.pixelformat);
-				goto fail;
-			}
-		} else {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Luma depth (%d) unsupported\n",
-				  s->sps.bit_depth_luma_minus8 + 8);
-			goto fail;
-		}
-		if (run->dst->vb2_buf.num_planes != 2) {
-			v4l2_warn(&dev->v4l2_dev, "Capture planes (%d) != 2\n",
-				  run->dst->vb2_buf.num_planes);
-			goto fail;
-		}
-		if (run->dst->planes[0].length < ctx->dst_fmt.plane_fmt[0].sizeimage ||
-		    run->dst->planes[1].length < ctx->dst_fmt.plane_fmt[1].sizeimage) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Capture planes length (%d/%d) < sizeimage (%d/%d)\n",
-				  run->dst->planes[0].length,
-				  run->dst->planes[1].length,
-				  ctx->dst_fmt.plane_fmt[0].sizeimage,
-				  ctx->dst_fmt.plane_fmt[1].sizeimage);
-			goto fail;
-		}
-
-		/*
-		 * Fill in ref planes with our address s.t. if we mess up refs
-		 * somehow then we still have a valid address entry
-		 */
-		for (i = 0; i != 16; ++i) {
-			de->ref_addrs[i][0] = de->frame_luma_addr;
-			de->ref_addrs[i][1] = de->frame_chroma_addr;
-		}
-
-		/*
-		 * Stash initial temporal_mvp flag
-		 * This must be the same for all pic slices (7.4.7.1)
-		 */
-		s->slice_temporal_mvp = slice_temporal_mvp;
-
-		/*
-		 * Need Aux ents for all (ref) DPB ents if temporal MV could
-		 * be enabled for any pic
-		 */
-		s->use_aux = ((s->sps.flags &
-			       V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED) != 0);
-		s->mk_aux = s->use_aux &&
-			    (s->sps.sps_max_sub_layers_minus1 >= sh0->nuh_temporal_id_plus1 ||
-			     is_ref_unit_type(sh0->nal_unit_type));
-
-		/* Phase 2 reg pre-calc */
-		de->rpi_config2 = mk_config2(s);
-		de->rpi_framesize = (s->sps.pic_height_in_luma_samples << 16) |
-				    s->sps.pic_width_in_luma_samples;
-		de->rpi_currpoc = sh0->slice_pic_order_cnt;
-
-		if (s->sps.flags &
-		    V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED) {
-			setup_colmv(ctx, run, s);
-		}
-
-		s->slice_idx = 0;
-
-		if (sh0->slice_segment_addr != 0) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "New frame but segment_addr=%d\n",
-				  sh0->slice_segment_addr);
-			goto fail;
-		}
-
-		/* Allocate a bitbuf if we need one - don't need one if single
-		 * slice as we can use the src buf directly
-		 */
-		if (!frame_end && !de->bit_copy_gptr->ptr) {
-			size_t bits_alloc;
-
-			bits_alloc = hevc_d_bit_buf_size(s->sps.pic_width_in_luma_samples,
-							 s->sps.pic_height_in_luma_samples,
-							 s->sps.bit_depth_luma_minus8);
-
-			if (gptr_alloc(dev, de->bit_copy_gptr,
-				       bits_alloc,
-				       DMA_ATTR_FORCE_CONTIGUOUS) != 0) {
-				v4l2_err(&dev->v4l2_dev,
-					 "Unable to alloc buf (%zu) for bit copy\n",
-					 bits_alloc);
-				goto fail;
-			}
-			v4l2_info(&dev->v4l2_dev,
-				  "Alloc buf (%zu) for bit copy OK\n",
-				  bits_alloc);
-		}
+	if (sh0->slice_segment_addr != 0) {
+		v4l2_warn(&dev->v4l2_dev,
+			  "New frame but segment_addr=%d\n",
+			  sh0->slice_segment_addr);
+		goto fail;
 	}
 
 	/* Either map src buffer or use directly */
 	s->src_addr = 0;
-	s->src_buf = NULL;
 
-	if (frame_end)
-		s->src_addr = vb2_dma_contig_plane_dma_addr(&run->src->vb2_buf,
-							    0);
-	if (!s->src_addr)
-		s->src_buf = vb2_plane_vaddr(&run->src->vb2_buf, 0);
-	if (!s->src_addr && !s->src_buf) {
+	s->src_addr = vb2_dma_contig_plane_dma_addr(&run->src->vb2_buf, 0);
+	if (!s->src_addr) {
 		v4l2_err(&dev->v4l2_dev, "Failed to map src buffer\n");
 		goto fail;
 	}
@@ -1872,7 +1796,7 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	s->dec = dec;
 	for (i = 0; i != run->h265.slice_ents; ++i) {
 		const struct v4l2_ctrl_hevc_slice_params *const sh = sh0 + i;
-		const bool last_slice = frame_end && i + 1 == run->h265.slice_ents;
+		const bool last_slice = i + 1 == run->h265.slice_ents;
 
 		s->sh = sh;
 
@@ -1924,11 +1848,6 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 			goto fail;
 
 		++s->slice_idx;
-	}
-
-	if (!frame_end) {
-		xtrace_ok(dev, de);
-		return;
 	}
 
 	/* Frame end */
@@ -2035,8 +1954,7 @@ static void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 fail:
 	if (de)
 		// Actual error reporting happens in Trigger
-		de->state = frame_end ? HEVC_D_DECODE_ERROR_DONE :
-					HEVC_D_DECODE_ERROR_CONTINUE;
+		de->state = HEVC_D_DECODE_ERROR_DONE;
 	xtrace_fail(dev, de);
 }
 
@@ -2382,8 +2300,6 @@ static void h265_ctx_uninit(struct hevc_d_dev *const dev, struct hevc_d_ctx *ctx
 	 */
 	aux_q_uninit(ctx);
 
-	for (i = 0; i != ARRAY_SIZE(ctx->bitbufs); ++i)
-		gptr_free(dev, ctx->bitbufs + i);
 	for (i = 0; i != ARRAY_SIZE(ctx->pu_bufs); ++i)
 		gptr_free(dev, ctx->pu_bufs + i);
 	for (i = 0; i != ARRAY_SIZE(ctx->coeff_bufs); ++i)
@@ -2476,17 +2392,7 @@ static void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	req = src_buf->vb2_buf.req_obj.req;
 
-	switch (!de ? HEVC_D_DECODE_ERROR_CONTINUE : de->state) {
-	case HEVC_D_DECODE_SLICE_START:
-		de->state = HEVC_D_DECODE_SLICE_CONTINUE;
-		fallthrough;
-	case HEVC_D_DECODE_SLICE_CONTINUE:
-		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
-						 VB2_BUF_STATE_DONE);
-		media_request_manual_complete(req);
-		xtrace_ok(dev, de);
-		break;
-
+	switch (!de ? HEVC_D_DECODE_ERROR_DONE : de->state) {
 	default:
 		v4l2_err(&dev->v4l2_dev, "%s: Unexpected state: %d\n", __func__,
 			 de->state);
@@ -2494,8 +2400,6 @@ static void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 	case HEVC_D_DECODE_ERROR_DONE:
 		ctx->dec0 = NULL;
 		dec_env_delete(de);
-		fallthrough;
-	case HEVC_D_DECODE_ERROR_CONTINUE:
 		xtrace_fin(dev, de);
 		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 						 VB2_BUF_STATE_ERROR);

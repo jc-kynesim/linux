@@ -60,9 +60,9 @@ static const struct hevc_d_control hevc_d_ctrls[] = {
 	}, {
 		.cfg = {
 			.id	= V4L2_CID_STATELESS_HEVC_DECODE_MODE,
-			.min	= V4L2_STATELESS_HEVC_DECODE_MODE_SLICE_BASED,
-			.max	= V4L2_STATELESS_HEVC_DECODE_MODE_SLICE_BASED,
-			.def	= V4L2_STATELESS_HEVC_DECODE_MODE_SLICE_BASED,
+			.min	= V4L2_STATELESS_HEVC_DECODE_MODE_FRAME_BASED,
+			.max	= V4L2_STATELESS_HEVC_DECODE_MODE_FRAME_BASED,
+			.def	= V4L2_STATELESS_HEVC_DECODE_MODE_FRAME_BASED,
 		},
 		.required	= false,
 	}, {
@@ -186,7 +186,8 @@ static int hevc_d_request_validate(struct media_request *req)
 							hevc_d_ctrls[i].cfg.id);
 		if (!ctrl_test) {
 			v4l2_info(&ctx->dev->v4l2_dev,
-				  "Missing required codec control\n");
+				  "Missing required codec control %d: id=%#x\n",
+				  i, hevc_d_ctrls[i].cfg.id);
 			v4l2_ctrl_request_hdl_put(hdl);
 			return -ENOENT;
 		}

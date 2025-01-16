@@ -414,8 +414,8 @@ static int hevc_d_s_fmt_vid_out(struct file *file, void *priv,
 	ctx->src_fmt = f->fmt.pix_mp;
 	ctx->dst_fmt_set = 0;  /* Setting src invalidates dst */
 
-	vq->subsystem_flags |=
-		VB2_V4L2_FL_SUPPORTS_M2M_HOLD_CAPTURE_BUF;
+//	vq->subsystem_flags |=
+//		VB2_V4L2_FL_SUPPORTS_M2M_HOLD_CAPTURE_BUF;
 
 	/* Propagate colorspace information to capture. */
 	copy_color(&ctx->dst_fmt, &f->fmt.pix_mp);

@@ -120,7 +120,6 @@ struct hevc_d_ctx {
 
 	unsigned int p1idx;
 	atomic_t p1out;
-	struct hevc_d_gptr bitbufs[HEVC_D_P1BUF_COUNT];
 
 	unsigned int p2idx;
 	struct hevc_d_gptr pu_bufs[HEVC_D_P2BUF_COUNT];
