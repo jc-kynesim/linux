@@ -32,6 +32,12 @@ enum hevc_slice_type {
 
 enum hevc_layer { L0 = 0, L1 = 1 };
 
+static bool old_bitsize(const struct hevc_d_ctx *const ctx)
+{
+	return ctx->dst_fmt.pixelformat == V4L2_PIX_FMT_NV12_COL128 ||
+		ctx->dst_fmt.pixelformat == V4L2_PIX_FMT_NV12_10_COL128;
+}
+
 static int gptr_alloc(struct hevc_d_dev *const dev, struct hevc_d_gptr *gptr,
 		      size_t size, unsigned long attrs)
 {
@@ -564,9 +570,10 @@ static int write_bitstream(struct hevc_d_dec_env *const de,
 	/* BFNUM includes the byte with rbsp_stop_one_bit which is not part
 	 * of slice_segment_data
 	 */
-	const unsigned int len = s->sh->bit_size / 8 + 1;
+	const unsigned int len = old_bitsize(de->ctx) ?
+		DIV_ROUND_UP(s->sh->bit_size, 8) - offset :
+		s->sh->bit_size / 8 + 1;
 	dma_addr_t addr = s->src_addr + offset;
-
 	offset = addr & 63;
 
 	p1_apb_write(de, RPI_BFBASE, dma_to_axi_addr(addr));
@@ -1800,7 +1807,9 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	for (i = 0; i != run->h265.slice_ents; ++i) {
 		const struct v4l2_ctrl_hevc_slice_params *const sh = sh0 + i;
 		const bool last_slice = i + 1 == run->h265.slice_ents;
-		u32 last_offset = sh->data_byte_offset + DIV_ROUND_UP(sh->bit_size, 8);
+		u32 last_offset = old_bitsize(ctx) ?
+			DIV_ROUND_UP(sh->bit_size, 8) :
+			sh->data_byte_offset + DIV_ROUND_UP(sh->bit_size, 8);
 		unsigned int j;
 
 		s->sh = sh;
@@ -1809,6 +1818,13 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 			v4l2_warn(&dev->v4l2_dev,
 				  "Last byte offset %d > bytesused %d\n",
 				  last_offset, run->src->planes[0].bytesused);
+			goto fail;
+		}
+		if (old_bitsize(ctx) &&
+		    sh->data_byte_offset >= sh->bit_size / 8) {
+			v4l2_warn(&dev->v4l2_dev,
+				  "Bit size %u < Byte offset %u * 8\n",
+				  sh->bit_size, sh->data_byte_offset);
 			goto fail;
 		}
 
