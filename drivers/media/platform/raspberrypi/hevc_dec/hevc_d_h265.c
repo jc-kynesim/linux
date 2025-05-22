@@ -567,7 +567,10 @@ static int write_bitstream(struct hevc_d_dec_env *const de,
 	// spec.
 	const int rpi_use_emu = 1;
 	unsigned int offset = s->sh->data_byte_offset;
-	const unsigned int len = (s->sh->bit_size + 7) / 8 - offset;
+	/* BFNUM includes the byte with rbsp_stop_one_bit which is not part
+	 * of slice_segment_data
+	 */
+	const unsigned int len = s->sh->bit_size / 8 + 1;
 	dma_addr_t addr = s->src_addr + offset;
 
 	offset = addr & 63;
@@ -1799,19 +1802,13 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	for (i = 0; i != run->h265.slice_ents; ++i) {
 		const struct v4l2_ctrl_hevc_slice_params *const sh = sh0 + i;
 		const bool last_slice = i + 1 == run->h265.slice_ents;
-
+		u32 last_offset = sh->data_byte_offset + (sh->bit_size + 7) / 8;
 		s->sh = sh;
 
-		if (run->src->planes[0].bytesused < (sh->bit_size + 7) / 8) {
+		if (run->src->planes[0].bytesused < last_offset) {
 			v4l2_warn(&dev->v4l2_dev,
-				  "Bit size %d > bytesused %d\n",
-				  sh->bit_size, run->src->planes[0].bytesused);
-			goto fail;
-		}
-		if (sh->data_byte_offset >= sh->bit_size / 8) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Bit size %u < Byte offset %u * 8\n",
-				  sh->bit_size, sh->data_byte_offset);
+				  "Last byte offset %d > bytesused %d\n",
+				  last_offset, run->src->planes[0].bytesused);
 			goto fail;
 		}
 
