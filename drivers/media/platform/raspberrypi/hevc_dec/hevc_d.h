@@ -39,11 +39,6 @@ enum hevc_d_irq_status {
 	HEVC_D_IRQ_OK,
 };
 
-struct hevc_d_control {
-	struct v4l2_ctrl_config cfg;
-	unsigned char		required:1;
-};
-
 struct hevc_d_h265_run {
 	u32 slice_ents;
 	const struct v4l2_ctrl_hevc_sps			*sps;
