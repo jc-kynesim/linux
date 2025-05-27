@@ -634,6 +634,8 @@ static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct hevc_d_dev *dev = ctx->dev;
 	int ret = 0;
 
+	v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, vq);
+
 	if (!V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		ctx->dst_stream_on = 1;
 		goto ok;
@@ -684,6 +686,8 @@ static void hevc_d_stop_streaming(struct vb2_queue *vq)
 	vb2_wait_for_all_buffers(vq);
 
 	stop_clock(dev, ctx);
+
+	v4l2_m2m_update_stop_streaming_state(ctx->fh.m2m_ctx, vq);
 }
 
 static void hevc_d_buf_queue(struct vb2_buffer *vb)
