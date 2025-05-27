@@ -128,12 +128,6 @@ struct hevc_d_ctx {
 	unsigned int colmv_picsize;
 };
 
-struct hevc_d_variant {
-	unsigned int	capabilities;
-	unsigned int	quirks;
-	unsigned int	mod_rate;
-};
-
 struct hevc_d_hw_irq_ent;
 
 #define HEVC_D_ICTL_ENABLE_UNLIMITED (-1)
