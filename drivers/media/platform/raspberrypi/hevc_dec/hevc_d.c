@@ -144,16 +144,16 @@ static int hevc_d_open(struct file *file)
 	file->private_data = &ctx->fh;
 	ctx->dev = dev;
 
-	ret = hevc_d_init_ctrls(dev, ctx);
-	if (ret)
-		goto err_free;
-
 	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev, ctx,
 					    &hevc_d_queue_init);
 	if (IS_ERR(ctx->fh.m2m_ctx)) {
 		ret = PTR_ERR(ctx->fh.m2m_ctx);
-		goto err_ctrls;
+		goto err_free;
 	}
+
+	ret = hevc_d_init_ctrls(dev, ctx);
+	if (ret)
+		goto err_ctx;
 
 	/* The only bit of format info that we can guess now is H265 src
 	 * Everything else we need more info for
@@ -166,9 +166,8 @@ static int hevc_d_open(struct file *file)
 
 	return 0;
 
-err_ctrls:
-	v4l2_ctrl_handler_free(&ctx->hdl);
-	kfree(ctx->ctrls);
+err_ctx:
+	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 err_free:
 	mutex_destroy(&ctx->ctx_mutex);
 	kfree(ctx);
@@ -187,10 +186,11 @@ static int hevc_d_release(struct file *file)
 	mutex_lock(&dev->dev_mutex);
 
 	v4l2_fh_del(&ctx->fh);
-	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 
 	v4l2_ctrl_handler_free(&ctx->hdl);
 	kfree(ctx->ctrls);
+
+	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 
 	v4l2_fh_exit(&ctx->fh);
 	mutex_destroy(&ctx->ctx_mutex);
