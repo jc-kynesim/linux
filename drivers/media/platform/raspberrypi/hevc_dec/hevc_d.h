@@ -28,11 +28,6 @@
 
 #define HEVC_D_NAME			"rpi-hevc-dec"
 
-#define HEVC_D_CAPABILITY_UNTILED	BIT(0)
-#define HEVC_D_CAPABILITY_H265_DEC	BIT(1)
-
-#define HEVC_D_QUIRK_NO_DMA_OFFSET	BIT(0)
-
 enum hevc_d_irq_status {
 	HEVC_D_IRQ_NONE,
 	HEVC_D_IRQ_ERROR,
