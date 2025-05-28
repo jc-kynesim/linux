@@ -557,11 +557,7 @@ static inline __u32 dma_to_axi_addr(dma_addr_t a)
 static int write_bitstream(struct hevc_d_dec_env *const de,
 			   const struct hevc_d_dec_state *const s)
 {
-	// FIXME!!!!
-	// Note that FFmpeg V4L2 does not remove emulation prevention bytes,
-	// so this is matched in the configuration here.
-	// Whether that is the correct behaviour or not is not clear in the
-	// spec.
+	/* V4L2 always has emulation prevention bytes in the stream */
 	const int rpi_use_emu = 1;
 	unsigned int offset = s->sh->data_byte_offset;
 	/* BFNUM includes the byte with rbsp_stop_one_bit which is not part
