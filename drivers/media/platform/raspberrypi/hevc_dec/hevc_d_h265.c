@@ -226,11 +226,6 @@ struct hevc_d_dec_state {
 	unsigned int prev_ctb_y;
 };
 
-static inline int clip_int(const int x, const int lo, const int hi)
-{
-	return x < lo ? lo : x > hi ? hi : x;
-}
-
 /* Phase 1 command and bit FIFOs */
 static int cmds_check_space(struct hevc_d_dec_env *const de, unsigned int n)
 {
@@ -506,7 +501,7 @@ static void write_prob(struct hevc_d_dec_env *const de,
 		 s->sh->slice_type != HEVC_SLICE_I) ?
 			s->sh->slice_type + 1 :
 			2 - s->sh->slice_type;
-	const int q = clip_int(s->slice_qp, 0, 51);
+	const int q = clamp((int)s->slice_qp, 0, 51);
 	const u8 *p = prob_init[init_type];
 	u8 dst[RPI_PROB_ARRAY_SIZE];
 	unsigned int i;
