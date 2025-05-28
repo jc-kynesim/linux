@@ -21,6 +21,9 @@
 #include "hevc_d_hw.h"
 #include "hevc_d_video.h"
 
+/* Maximum length of command buffer before we rate it an error */
+#define CMD_BUFFER_SIZE_MAX 0x100000
+
 enum hevc_slice_type {
 	HEVC_SLICE_B = 0,
 	HEVC_SLICE_P = 1,
@@ -232,7 +235,7 @@ static int cmds_check_space(struct hevc_d_dec_env *const de, unsigned int n)
 	struct rpi_cmd *a;
 	unsigned int newmax;
 
-	if (n > 0x100000) {
+	if (n > CMD_BUFFER_SIZE_MAX) {
 		v4l2_err(&de->ctx->dev->v4l2_dev,
 			 "%s: n %u implausible\n", __func__, n);
 		return -ENOMEM;
