@@ -694,7 +694,10 @@ static void program_slicecmds(struct hevc_d_dec_env *const de,
 		p1_apb_write(de, 0x4000 + 4 * i, de->slice_msgs[i] & 0xffff);
 }
 
-/* NoBackwardPredictionFlag 8.3.5 - Simply checks POCs */
+/* NoBackwardPredictionFlag 8.3.5 - Simply checks POCs of the frames referenced
+ * by the idx array against cur_poc. Needs to be called twice (with L0 & L1) to
+ * get NoBackwardPredictionFlag.
+ */
 static int has_backward(const struct v4l2_hevc_dpb_entry *const dpb,
 			const __u8 *const idx, const unsigned int n,
 			const s32 cur_poc)
