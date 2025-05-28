@@ -262,7 +262,6 @@ static int cmds_check_space(struct hevc_d_dec_env *const de, unsigned int n)
 	return 0;
 }
 
-// ???? u16 addr - put in u32
 static void p1_apb_write(struct hevc_d_dec_env *const de, const u16 addr,
 			 const u32 data)
 {
