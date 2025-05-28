@@ -22,9 +22,27 @@
 #include <media/videobuf2-v4l2.h>
 #include <media/videobuf2-dma-contig.h>
 
-#define HEVC_D_DEC_ENV_COUNT 6
+/*
+ * Q sizes of 3 give one entry being prepared, one waiting and
+ * one processing. Testing shows no advantage to greater Q depths
+ */
+
+/*
+ * Max processing Q size Phase 0 -> Phase 1
+ * This is per open context
+ */
 #define HEVC_D_P1BUF_COUNT 3
+/*
+ * Max processing Q size Phase 1 -> Phase 2
+ * This is per device
+ */
 #define HEVC_D_P2BUF_COUNT 3
+/*
+ * Number of decode environments a context has
+ * There is no independent flow control on this number so it must be
+ * capable of holding P1 + P2 entries.
+ */
+#define HEVC_D_DEC_ENV_COUNT (HEVC_D_P1BUF_COUNT + HEVC_D_P2BUF_COUNT)
 
 #define HEVC_D_NAME			"rpi-hevc-dec"
 
