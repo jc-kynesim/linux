@@ -219,7 +219,7 @@ struct hevc_d_dec_state {
 	const struct v4l2_ctrl_hevc_decode_params *dec;
 	unsigned int nb_refs[2];
 	unsigned int slice_qp;
-	unsigned int max_num_merge_cand; // 0 if I-slice
+	unsigned int max_num_merge_cand; /* 0 if I-slice */
 	bool dependent_slice_segment_flag;
 
 	unsigned int start_ts;          /* slice_segment_addr -> ts */
@@ -570,7 +570,7 @@ static int write_bitstream(struct hevc_d_dec_env *const de,
 
 	p1_apb_write(de, RPI_BFBASE, dma_to_axi_addr(addr));
 	p1_apb_write(de, RPI_BFNUM, len);
-	p1_apb_write(de, RPI_BFCONTROL, offset + (1 << 7)); // Stop
+	p1_apb_write(de, RPI_BFCONTROL, offset + (1 << 7)); /* Stop */
 	p1_apb_write(de, RPI_BFCONTROL, offset + (rpi_use_emu << 6));
 	return 0;
 }
@@ -1105,7 +1105,7 @@ static int tile_entry_fill(struct hevc_d_dec_env *const de,
 			     2 | (last_x << 5) | (last_y << 18));
 		p1_apb_write(de, RPI_TRANSFER, PROB_RELOAD);
 
-		// Inc tile
+		/* Inc tile */
 		if (++t_x >= s->tile_width) {
 			t_x = 0;
 			++t_y;
@@ -1952,7 +1952,7 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 
 fail:
 	if (de)
-		// Actual error reporting happens in Trigger
+		/* Actual error reporting happens in Trigger */
 		de->state = HEVC_D_DECODE_ERROR_DONE;
 }
 
@@ -2056,7 +2056,7 @@ static void phase1_claimed(struct hevc_d_dev *const dev, void *v);
 
 /* release any and all objects associated with de and reenable phase 1 if
  * required
- *///  1 if required
+ */
 static void phase1_err_fin(struct hevc_d_dev *const dev,
 			   struct hevc_d_ctx *const ctx,
 			   struct hevc_d_dec_env *const de)
