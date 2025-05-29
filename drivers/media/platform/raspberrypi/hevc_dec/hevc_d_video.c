@@ -596,14 +596,13 @@ static int hevc_d_buf_prepare(struct vb2_buffer *vb)
 	return 0;
 }
 
-/* Only stops the clock if streaom off on both output & capture */
+/*
+ * Stop the clock for this context
+ * clk_disable_unprepare does ref counting so this will not actually
+ * disable the clock if there are other running contexts
+ */
 static void stop_clock(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
 {
-	if (ctx->src_stream_on ||
-	    ctx->dst_stream_on)
-		return;
-
-	clk_set_min_rate(dev->clock, 0);
 	clk_disable_unprepare(dev->clock);
 }
 
@@ -635,29 +634,16 @@ static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 
 	v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, vq);
 
-	if (!V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		ctx->dst_stream_on = 1;
-		goto ok;
+	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
+		ret = start_clock(dev, ctx);
+		if (ret)
+			goto fail_cleanup;
+
+		ret = hevc_d_h265_start(ctx);
+		if (ret)
+			goto fail_stop_clock;
 	}
 
-	if (ctx->src_fmt.pixelformat != V4L2_PIX_FMT_HEVC_SLICE) {
-		ret = -EINVAL;
-		goto fail_cleanup;
-	}
-
-	if (ctx->src_stream_on)
-		goto ok;
-
-	ret = start_clock(dev, ctx);
-	if (ret)
-		goto fail_cleanup;
-
-	ret = hevc_d_h265_start(ctx);
-	if (ret)
-		goto fail_stop_clock;
-
-	ctx->src_stream_on = 1;
-ok:
 	return 0;
 
 fail_stop_clock:
@@ -674,17 +660,13 @@ static void hevc_d_stop_streaming(struct vb2_queue *vq)
 	struct hevc_d_dev *dev = ctx->dev;
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		ctx->src_stream_on = 0;
 		hevc_d_h265_stop(ctx);
-	} else {
-		ctx->dst_stream_on = 0;
+		stop_clock(dev, ctx);
 	}
 
 	hevc_d_queue_cleanup(vq, VB2_BUF_STATE_ERROR);
 
 	vb2_wait_for_all_buffers(vq);
-
-	stop_clock(dev, ctx);
 
 	v4l2_m2m_update_stop_streaming_state(ctx->fh.m2m_ctx, vq);
 }

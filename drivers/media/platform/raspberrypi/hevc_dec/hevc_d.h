@@ -83,9 +83,6 @@ struct hevc_d_ctx {
 	struct v4l2_pix_format_mplane	dst_fmt;
 	int dst_fmt_set;
 
-	int				src_stream_on;
-	int				dst_stream_on;
-
 	/*
 	 * fatal_err is set if an error has occurred s.t. decode cannot
 	 * continue (such as running out of CMA)
