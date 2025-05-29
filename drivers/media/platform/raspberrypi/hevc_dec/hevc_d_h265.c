@@ -2021,11 +2021,16 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	apb_write_vc_len(dev, RPI_OUTCSTRIDE, de->chroma_stride);
 
 	for (i = 0; i < 16; i++) {
-		// Strides are in fact unused but fill in anyway
-		apb_write_vc_addr(dev, 0x9000 + 16 * i, de->ref_addrs[i][0]);
-		apb_write_vc_len(dev, 0x9004 + 16 * i, de->luma_stride);
-		apb_write_vc_addr(dev, 0x9008 + 16 * i, de->ref_addrs[i][1]);
-		apb_write_vc_len(dev, 0x900C + 16 * i, de->chroma_stride);
+		/* Strides are in fact unused but fill in anyway */
+		unsigned int roff = i * RPI_REFREGS_SIZE;
+		apb_write_vc_addr(dev, RPI_REFYBASE0 + roff,
+				  de->ref_addrs[i][0]);
+		apb_write_vc_len(dev, RPI_REFYSTRIDE0 + roff,
+				 de->luma_stride);
+		apb_write_vc_addr(dev, RPI_REFCBASE0 + roff,
+				  de->ref_addrs[i][1]);
+		apb_write_vc_len(dev, RPI_REFCSTRIDE0 + roff,
+				 de->chroma_stride);
 	}
 
 	apb_write(dev, RPI_CONFIG2, de->rpi_config2);
