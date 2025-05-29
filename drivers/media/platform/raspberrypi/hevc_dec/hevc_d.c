@@ -34,6 +34,10 @@ static int video_nr = 19;
 module_param(video_nr, int, 0644);
 MODULE_PARM_DESC(video_nr, "decoder video device number");
 
+int hevc_d_v4l2_debug = 0;
+module_param_named(debug, hevc_d_v4l2_debug, int, 0644);
+MODULE_PARM_DESC(debug, "Debug level 0-2");
+
 static const struct v4l2_ctrl_config hevc_d_ctrls[] = {
 	{
 		.id	= V4L2_CID_STATELESS_HEVC_SPS,

@@ -209,6 +209,7 @@ struct hevc_d_dec_state {
 
 	/* Slice vars */
 	unsigned int slice_idx;
+	unsigned int idx_inuse;
 	bool slice_temporal_mvp;  /* Slice flag but constant for frame */
 	bool use_aux;
 	bool mk_aux;
@@ -254,7 +255,7 @@ static int cmds_check_space(struct hevc_d_dec_env *const de, unsigned int n)
 			 de->cmd_max, newmax);
 		return -ENOMEM;
 	}
-	v4l2_info(&de->ctx->dev->v4l2_dev,
+	hevc_d_dbg(1, &de->ctx->dev->v4l2_dev,
 		  "cmd buffer realloc from %u to %u\n", de->cmd_max, newmax);
 
 	de->cmd_fifo = a;
@@ -1795,10 +1796,13 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 
 	/* Pre calc parameters */
 	s->dec = dec;
+	s->idx_inuse = 0;
 	for (i = 0; i != run->h265.slice_ents; ++i) {
 		const struct v4l2_ctrl_hevc_slice_params *const sh = sh0 + i;
 		const bool last_slice = i + 1 == run->h265.slice_ents;
 		u32 last_offset = sh->data_byte_offset + DIV_ROUND_UP(sh->bit_size, 8);
+		unsigned int j;
+
 		s->sh = sh;
 
 		if (run->src->planes[0].bytesused < last_offset) {
@@ -1822,6 +1826,11 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		s->nb_refs[1] = (sh->slice_type != HEVC_SLICE_B) ?
 					0 :
 					sh->num_ref_idx_l1_active_minus1 + 1;
+
+		for (j = 0; j != s->nb_refs[0]; ++j)
+			s->idx_inuse |= 1 << sh->ref_idx_l0[j];
+		for (j = 0; j != s->nb_refs[1]; ++j)
+			s->idx_inuse |= 1 << sh->ref_idx_l1[j];
 
 		if (s->sps.flags & V4L2_HEVC_SPS_FLAG_SCALING_LIST_ENABLED)
 			populate_scaling_factors(run, de, s);
@@ -1853,7 +1862,6 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	 * Locate ref frames
 	 * At least in the current implementation this is constant across all
 	 * slices. If this changes we will need idx mapping code.
-	 * Uses sh so here rather than trigger
 	 */
 
 	vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx,
@@ -1871,9 +1879,14 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		struct vb2_buffer *buf = vb2_find_buffer(vq, dec->dpb[i].timestamp);
 
 		if (!buf) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Missing DPB ent %d, timestamp=%lld\n",
-				  i, (long long)dec->dpb[i].timestamp);
+			if (!(s->idx_inuse & (1 << i)))
+				hevc_d_dbg(2, &dev->v4l2_dev,
+					   "Missing unused DPB ent %d, timestamp=%lld\n",
+					   i, (long long)dec->dpb[i].timestamp);
+			else
+				v4l2_warn(&dev->v4l2_dev,
+					  "Missing inuse DPB ent %d, timestamp=%lld\n",
+					  i, (long long)dec->dpb[i].timestamp);
 			continue;
 		}
 
@@ -2098,7 +2111,7 @@ static void phase1_thread(struct hevc_d_dev *const dev, void *v)
 				 __func__, pu_gptr->size);
 			goto fail;
 		}
-		v4l2_info(&dev->v4l2_dev, "%s: PU realloc (%zx) OK\n",
+		hevc_d_dbg(1, &dev->v4l2_dev, "%s: PU realloc (%zx) OK\n",
 			  __func__, pu_gptr->size);
 	}
 
@@ -2110,7 +2123,7 @@ static void phase1_thread(struct hevc_d_dev *const dev, void *v)
 				 __func__, coeff_gptr->size);
 			goto fail;
 		}
-		v4l2_info(&dev->v4l2_dev, "%s: Coeff realloc (%zx) OK\n",
+		hevc_d_dbg(1, &dev->v4l2_dev, "%s: Coeff realloc (%zx) OK\n",
 			  __func__, coeff_gptr->size);
 	}
 
@@ -2136,7 +2149,7 @@ static void phase1_cb(struct hevc_d_dev *const dev, void *v)
 	de->p1_status = check_status(dev);
 
 	if (de->p1_status != 0) {
-		v4l2_info(&dev->v4l2_dev, "%s: Post wait: %#x\n",
+		hevc_d_dbg(2, &dev->v4l2_dev, "%s: Post wait: %#x\n",
 			  __func__, de->p1_status);
 
 		if (de->p1_status < 0)

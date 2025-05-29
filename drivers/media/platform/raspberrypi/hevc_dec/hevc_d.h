@@ -182,6 +182,10 @@ struct hevc_d_dev {
 	struct hevc_d_hw_irq_ctrl ic_active2;
 };
 
+extern int hevc_d_v4l2_debug;
+#define hevc_d_dbg(level, dev, fmt, arg...)\
+	v4l2_dbg((level), hevc_d_v4l2_debug, (dev), fmt, ## arg)
+
 struct v4l2_ctrl *hevc_d_find_ctrl(struct hevc_d_ctx *ctx, u32 id);
 void *hevc_d_find_control_data(struct hevc_d_ctx *ctx, u32 id);
 
