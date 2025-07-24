@@ -158,6 +158,7 @@ struct media_device_ops {
  * @serial:	Device serial number (optional)
  * @bus_info:	Unique and stable device location identifier
  * @hw_revision: Hardware device revision
+ * @flags:	Media device flags
  * @topology_version: Monotonic counter for storing the version of the graph
  *		topology. Should be incremented each time the topology changes.
  * @id:		Unique ID used on the last registered graph object
@@ -225,6 +226,11 @@ struct media_device_ops {
  *    necessary to run @enable_source and @disable_source handlers.
  *    Callers should hold graph_mutex to access and call @enable_source
  *    and @disable_source handlers.
+ *
+ * The @flags field reports the media device capabilities:
+ *
+ * %MEDIA_DEVICE_FL_CONTEXT
+ *    indicates that the media device supports multi-context operations.
  */
 struct media_device {
 	/* dev->driver_data points to this struct. */
@@ -236,6 +242,7 @@ struct media_device {
 	char serial[40];
 	char bus_info[32];
 	u32 hw_revision;
+	u32 flags;
 
 	u64 topology_version;
 
