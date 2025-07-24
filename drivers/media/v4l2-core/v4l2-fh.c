@@ -96,6 +96,7 @@ int v4l2_fh_release(struct file *filp)
 	struct v4l2_fh *fh = file_to_v4l2_fh(filp);
 
 	if (fh) {
+		video_device_context_put(fh->context);
 		v4l2_fh_del(fh, filp);
 		v4l2_fh_exit(fh);
 		kfree(fh);
