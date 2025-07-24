@@ -23,6 +23,7 @@
 #include <linux/debugfs.h>
 
 struct media_device;
+struct media_devnode;
 
 /* debugfs top-level media directory */
 extern struct dentry *media_debugfs_root;
@@ -55,7 +56,7 @@ struct media_file_operations {
 	__poll_t (*poll) (struct file *, struct poll_table_struct *);
 	long (*ioctl) (struct file *, unsigned int, unsigned long);
 	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
-	int (*open) (struct file *);
+	int (*open) (struct media_devnode *, struct file *);
 	int (*release) (struct file *);
 };
 
