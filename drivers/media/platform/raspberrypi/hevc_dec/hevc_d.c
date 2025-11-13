@@ -155,7 +155,7 @@ static int hevc_d_open(struct file *file)
 	 */
 	hevc_d_prepare_src_format(&ctx->src_fmt);
 
-	v4l2_fh_add(&ctx->fh);
+	v4l2_fh_add(&ctx->fh, file);
 
 	mutex_unlock(&dev->dev_mutex);
 
@@ -180,7 +180,7 @@ static int hevc_d_release(struct file *file)
 
 	mutex_lock(&dev->dev_mutex);
 
-	v4l2_fh_del(&ctx->fh);
+	v4l2_fh_del(&ctx->fh, file);
 
 	v4l2_ctrl_handler_free(&ctx->hdl);
 	kfree(ctx->ctrls);
