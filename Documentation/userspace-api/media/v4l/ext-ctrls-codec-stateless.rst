@@ -2398,12 +2398,10 @@ This structure contains all loop filter related parameters. See sections
 
     * - __u32
       - ``bit_size``
-      - Size in bits of the slice_segment_data for the current slice including
-        any emulation prevention bytes.
+      - Size (in bits) of the current slice data.
     * - __u32
       - ``data_byte_offset``
-      - Offset in bytes from the start of the current v4l2_buffer to the start
-        of the slice_segment_data for the current slice.
+      - Offset (in byte) to the video data in the current slice data.
     * - __u32
       - ``num_entry_point_offsets``
       - Specifies the number of entry point offset syntax elements in the slice header.
