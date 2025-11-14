@@ -106,7 +106,6 @@ struct hevc_d_ctx {
 	struct mutex			ctx_mutex;
 
 	struct v4l2_ctrl_handler	hdl;
-	struct v4l2_ctrl		**ctrls;
 
 	/*
 	 * state contains stuff that is only needed in phase0

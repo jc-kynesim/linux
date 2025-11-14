@@ -2490,7 +2490,7 @@ void hevc_d_device_run(void *priv)
 			hevc_d_find_control_data(ctx,
 						 V4L2_CID_STATELESS_HEVC_DECODE_PARAMS);
 
-		ctrl = hevc_d_find_ctrl(ctx,
+		ctrl = v4l2_ctrl_find(ctx->fh.ctrl_handler,
 					V4L2_CID_STATELESS_HEVC_SLICE_PARAMS);
 		if (!ctrl || !ctrl->elems) {
 			v4l2_err(&dev->v4l2_dev, "%s: Missing slice params\n",

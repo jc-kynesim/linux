@@ -59,24 +59,10 @@ static const struct v4l2_ctrl_config hevc_d_ctrls[] = {
 	},
 };
 
-#define HEVC_D_CTRLS_COUNT	ARRAY_SIZE(hevc_d_ctrls)
-
-struct v4l2_ctrl *hevc_d_find_ctrl(struct hevc_d_ctx *ctx, u32 id)
-{
-	unsigned int i;
-
-	for (i = 0; i < HEVC_D_CTRLS_COUNT; i++)
-		if (ctx->ctrls[i]->id == id)
-			return ctx->ctrls[i];
-
-	return NULL;
-}
-
 void *hevc_d_find_control_data(struct hevc_d_ctx *ctx, u32 id)
 {
-	struct v4l2_ctrl *const ctrl = hevc_d_find_ctrl(ctx, id);
-
-	return !ctrl ? NULL : ctrl->p_cur.p;
+	struct v4l2_ctrl *const ctrl = v4l2_ctrl_find(ctx->fh.ctrl_handler, id);
+	return ctrl ? ctrl->p_cur.p : NULL;
 }
 
 static int hevc_d_init_ctrls(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
@@ -85,18 +71,14 @@ static int hevc_d_init_ctrls(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
 	struct v4l2_ctrl *ctrl;
 	unsigned int i;
 
-	v4l2_ctrl_handler_init(hdl, HEVC_D_CTRLS_COUNT);
+	v4l2_ctrl_handler_init(hdl, ARRAY_SIZE(hevc_d_ctrls));
 	if (hdl->error) {
 		v4l2_err(&dev->v4l2_dev,
 			 "Failed to initialize control handler\n");
 		return hdl->error;
 	}
 
-	ctx->ctrls = kzalloc(HEVC_D_CTRLS_COUNT * sizeof(ctrl), GFP_KERNEL);
-	if (!ctx->ctrls)
-		return -ENOMEM;
-
-	for (i = 0; i < HEVC_D_CTRLS_COUNT; i++) {
+	for (i = 0; i < ARRAY_SIZE(hevc_d_ctrls); i++) {
 		ctrl = v4l2_ctrl_new_custom(hdl, &hevc_d_ctrls[i], ctx);
 		if (hdl->error) {
 			v4l2_err(&dev->v4l2_dev,
@@ -104,11 +86,8 @@ static int hevc_d_init_ctrls(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
 				 hevc_d_ctrls[i].id);
 
 			v4l2_ctrl_handler_free(hdl);
-			kfree(ctx->ctrls);
 			return hdl->error;
 		}
-
-		ctx->ctrls[i] = ctrl;
 	}
 
 	ctx->fh.ctrl_handler = hdl;
@@ -183,7 +162,6 @@ static int hevc_d_release(struct file *file)
 	v4l2_fh_del(&ctx->fh, file);
 
 	v4l2_ctrl_handler_free(&ctx->hdl);
-	kfree(ctx->ctrls);
 
 	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
 
