@@ -2,7 +2,7 @@
 /*
  * Raspberry Pi HEVC driver
  *
- * Copyright (C) 2024 Raspberry Pi Ltd
+ * Copyright (C) 2025 Raspberry Pi Ltd
  *
  */
 

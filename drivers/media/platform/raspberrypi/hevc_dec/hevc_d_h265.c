@@ -2,7 +2,7 @@
 /*
  * Raspberry Pi HEVC driver
  *
- * Copyright (C) 2020 Raspberry Pi Ltd
+ * Copyright (C) 2025 Raspberry Pi Ltd
  *
  * Based on the Cedrus VPU driver, that is:
  *
