@@ -45,7 +45,7 @@ static const struct v4l2_ctrl_config hevc_d_ctrls[] = {
 		.id	= V4L2_CID_STATELESS_HEVC_SLICE_PARAMS,
 		.type	= V4L2_CTRL_TYPE_HEVC_SLICE_PARAMS,
 		.flags	= V4L2_CTRL_FLAG_DYNAMIC_ARRAY,
-		.dims	= { 0x1000 },
+		.dims	= { 600 },
 	}, {
 		.id	= V4L2_CID_STATELESS_HEVC_DECODE_MODE,
 		.min	= V4L2_STATELESS_HEVC_DECODE_MODE_FRAME_BASED,
