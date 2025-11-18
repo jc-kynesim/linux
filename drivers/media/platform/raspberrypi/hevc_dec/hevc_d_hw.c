@@ -343,8 +343,6 @@ int hevc_d_hw_probe(struct hevc_d_dev *dev)
 							    RPI_FIRMWARE_HEVC_CLK_ID);
 	rpi_firmware_put(firmware);
 
-	dev->cache_align = dma_get_cache_alignment();
-
 	/* Disable IRQs & reset anything pending */
 	irq_write(dev, 0,
 		  ARG_IC_ICTRL_ACTIVE1_EN_SET | ARG_IC_ICTRL_ACTIVE2_EN_SET);
