@@ -120,14 +120,14 @@ static int hevc_d_open(struct file *file)
 		goto err_free;
 	}
 
-	ret = hevc_d_init_ctrls(dev, ctx);
-	if (ret)
-		goto err_ctx;
-
 	/* The only bit of format info that we can guess now is H265 src
 	 * Everything else we need more info for
 	 */
 	hevc_d_prepare_src_format(&ctx->src_fmt);
+
+	ret = hevc_d_init_ctrls(dev, ctx);
+	if (ret)
+		goto err_ctx;
 
 	v4l2_fh_add(&ctx->fh, file);
 	return 0;
