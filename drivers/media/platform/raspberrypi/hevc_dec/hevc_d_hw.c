@@ -307,13 +307,81 @@ void hevc_d_hw_irq_active2_irq(struct hevc_d_dev *dev,
 	pre_irq(dev, ient, irq_cb, ctx, &dev->ic_active2);
 }
 
+/*
+ * Stop the clock for this context
+ * clk_disable_unprepare does ref counting so this will not actually
+ * disable the clock if there are other running contexts
+ */
+void hevc_d_hw_stop_clock(struct hevc_d_dev *dev)
+{
+	dev_info(dev->dev, "Stop clock\n");
+
+	clk_disable_unprepare(dev->clock);
+}
+
+/* Always starts the clock if it isn't already on this ctx */
+int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
+{
+	int rv;
+
+	rv = clk_set_min_rate(dev->clock, dev->max_clock_rate);
+	if (rv) {
+		dev_err(dev->dev, "Failed to set clock rate\n");
+		return rv;
+	}
+
+	rv = clk_prepare_enable(dev->clock);
+	if (rv) {
+		dev_err(dev->dev, "Failed to enable clock\n");
+		return rv;
+	}
+
+	dev_info(dev->dev, "Start clock: %lu\n", dev->max_clock_rate);
+
+	return 0;
+}
+
+static int hw_setup(struct hevc_d_dev *dev)
+{
+	struct device_node *node;
+	u32 ver;
+	u32 irq_stat;
+	struct rpi_firmware *firmware;
+
+	ver = apb_read(dev, RPI_VERSION);
+	if (ver != 0x202) {
+		dev_err(dev->dev, "Unexpected version %#x only 0x202 supported\n", ver);
+		return -ENODEV;
+	}
+
+	node = rpi_firmware_find_node();
+	if (!node)
+		return -EINVAL;
+
+	firmware = rpi_firmware_get(node);
+	of_node_put(node);
+	if (!firmware)
+		return -EPROBE_DEFER;
+
+	dev->max_clock_rate = rpi_firmware_clk_get_max_rate(firmware,
+							    RPI_FIRMWARE_HEVC_CLK_ID);
+	rpi_firmware_put(firmware);
+
+	dev_info(dev->dev, "Max clock rate = %lu\n", dev->max_clock_rate);
+
+	/* Disable IRQs & reset anything pending */
+	irq_write(dev, 0,
+		  ARG_IC_ICTRL_ACTIVE1_EN_SET | ARG_IC_ICTRL_ACTIVE2_EN_SET);
+	irq_stat = irq_read(dev, 0);
+	irq_write(dev, 0, irq_stat);
+
+	return 0;
+}
+
 int hevc_d_hw_probe(struct hevc_d_dev *dev)
 {
-	struct rpi_firmware *firmware;
-	struct device_node *node;
-	__u32 irq_stat;
 	int irq_dec;
-	int ret = 0;
+	int ret;
 
 	ictl_init(&dev->ic_active1, HEVC_D_P2BUF_COUNT);
 	ictl_init(&dev->ic_active2, HEVC_D_ICTL_ENABLE_UNLIMITED);
@@ -330,24 +398,13 @@ int hevc_d_hw_probe(struct hevc_d_dev *dev)
 	if (IS_ERR(dev->clock))
 		return PTR_ERR(dev->clock);
 
-	node = rpi_firmware_find_node();
-	if (!node)
-		return -EINVAL;
-
-	firmware = rpi_firmware_get(node);
-	of_node_put(node);
-	if (!firmware)
-		return -EPROBE_DEFER;
-
-	dev->max_clock_rate = rpi_firmware_clk_get_max_rate(firmware,
-							    RPI_FIRMWARE_HEVC_CLK_ID);
-	rpi_firmware_put(firmware);
-
-	/* Disable IRQs & reset anything pending */
-	irq_write(dev, 0,
-		  ARG_IC_ICTRL_ACTIVE1_EN_SET | ARG_IC_ICTRL_ACTIVE2_EN_SET);
-	irq_stat = irq_read(dev, 0);
-	irq_write(dev, 0, irq_stat);
+	ret = clk_prepare_enable(dev->clock);
+	if (ret)
+		return ret;
+	ret = hw_setup(dev);
+	clk_disable_unprepare(dev->clock);
+	if (ret)
+		return ret;
 
 	irq_dec = platform_get_irq(dev->pdev, 0);
 	if (irq_dec <= 0)

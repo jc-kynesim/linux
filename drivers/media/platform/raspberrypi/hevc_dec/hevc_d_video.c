@@ -535,36 +535,6 @@ static int hevc_d_buf_prepare(struct vb2_buffer *vb)
 	return 0;
 }
 
-/*
- * Stop the clock for this context
- * clk_disable_unprepare does ref counting so this will not actually
- * disable the clock if there are other running contexts
- */
-static void stop_clock(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
-{
-	clk_disable_unprepare(dev->clock);
-}
-
-/* Always starts the clock if it isn't already on this ctx */
-static int start_clock(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
-{
-	int rv;
-
-	rv = clk_set_min_rate(dev->clock, dev->max_clock_rate);
-	if (rv) {
-		dev_err(dev->dev, "Failed to set clock rate\n");
-		return rv;
-	}
-
-	rv = clk_prepare_enable(dev->clock);
-	if (rv) {
-		dev_err(dev->dev, "Failed to enable clock\n");
-		return rv;
-	}
-
-	return 0;
-}
-
 static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 {
 	struct hevc_d_ctx *ctx = vb2_get_drv_priv(vq);
@@ -574,7 +544,7 @@ static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 	v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, vq);
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		ret = start_clock(dev, ctx);
+		ret = hevc_d_hw_start_clock(dev);
 		if (ret)
 			goto fail_cleanup;
 
@@ -586,7 +556,7 @@ static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 	return 0;
 
 fail_stop_clock:
-	stop_clock(dev, ctx);
+	hevc_d_hw_stop_clock(dev);
 fail_cleanup:
 	v4l2_err(&dev->v4l2_dev, "%s: qtype=%d: FAIL\n", __func__, vq->type);
 	hevc_d_queue_cleanup(vq, VB2_BUF_STATE_QUEUED);
@@ -600,7 +570,7 @@ static void hevc_d_stop_streaming(struct vb2_queue *vq)
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		hevc_d_h265_stop(ctx);
-		stop_clock(dev, ctx);
+		hevc_d_hw_stop_clock(dev);
 	}
 
 	hevc_d_queue_cleanup(vq, VB2_BUF_STATE_ERROR);
