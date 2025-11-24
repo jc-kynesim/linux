@@ -1943,20 +1943,25 @@ static int check_status(const struct hevc_d_dev *const dev)
 	return -1;
 }
 
-static void phase2_cb(struct hevc_d_dev *const dev, void *v)
+static void phase2_done(struct hevc_d_dev *const dev,
+			struct hevc_d_dec_env *const de,
+			enum vb2_buffer_state state)
 {
-	struct hevc_d_dec_env *const de = v;
-
-	/* Done with buffers - allow new P1 */
-	hevc_d_hw_irq_active1_enable_claim(dev, 1);
-
-	v4l2_m2m_buf_done(de->frame_buf, VB2_BUF_STATE_DONE);
+	v4l2_m2m_buf_done(de->frame_buf, state);
 	de->frame_buf = NULL;
 
 	media_request_manual_complete(de->request);
 	de->request = NULL;
 
 	dec_env_delete(de);
+
+	/* Finally allow new P1. Avoids possibility of race with de alloc */
+	hevc_d_hw_irq_active1_enable_claim(dev, 1);
+}
+
+static void phase2_cb(struct hevc_d_dev *const dev, void *v)
+{
+	phase2_done(dev, v, VB2_BUF_STATE_DONE);
 }
 
 static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
@@ -2007,35 +2012,33 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	apb_write_final(dev, RPI_NUMROWS, de->pic_height_in_ctbs_y);
 }
 
+static void phase2_err_claimed(struct hevc_d_dev *const dev, void *v)
+{
+	phase2_done(dev, v, VB2_BUF_STATE_ERROR);
+}
+
 static void phase1_claimed(struct hevc_d_dev *const dev, void *v);
 
-/* release any and all objects associated with de and reenable phase 1 if
- * required
- */
-static void phase1_err_fin(struct hevc_d_dev *const dev,
-			   struct hevc_d_ctx *const ctx,
-			   struct hevc_d_dec_env *const de)
+static void phase1_done(struct hevc_d_dev *const dev,
+			struct hevc_d_dec_env *const de,
+			enum vb2_buffer_state state)
 {
-	/* Return all detached buffers */
-	if (de->src_buf)
-		v4l2_m2m_buf_done(de->src_buf, VB2_BUF_STATE_ERROR);
+	struct hevc_d_ctx *const ctx = de->ctx;
+	hevc_d_irq_callback p2_cb;
+
+	p2_cb = (state == VB2_BUF_STATE_DONE) ? phase2_claimed :
+					        phase2_err_claimed;
+	v4l2_m2m_buf_done(de->src_buf, state);
 	de->src_buf = NULL;
-	if (de->frame_buf)
-		v4l2_m2m_buf_done(de->frame_buf, VB2_BUF_STATE_ERROR);
-	de->frame_buf = NULL;
 
-	if (de->request)
-		media_request_manual_complete(de->request);
-	de->request = NULL;
+	/* All phase1 error paths done - it is safe to inc p2idx */
+	ctx->p2idx = (ctx->p2idx + 1 >= HEVC_D_P2BUF_COUNT) ? 0 : ctx->p2idx + 1;
 
-	dec_env_delete(de);
-
-	/* Reenable phase 0 if we were blocking */
+	/* Renable the next setup if we were blocking */
 	if (atomic_add_return(-1, &ctx->p1out) >= HEVC_D_P1BUF_COUNT - 1)
 		v4l2_m2m_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx);
 
-	/* Done with P1-P2 buffers - allow new P1 */
-	hevc_d_hw_irq_active1_enable_claim(dev, 1);
+	hevc_d_hw_irq_active2_claim(dev, &de->irq_ent, p2_cb, de);
 }
 
 static void phase1_thread(struct hevc_d_dev *const dev, void *v)
@@ -2079,14 +2082,13 @@ fail:
 			 __func__);
 		ctx->fatal_err = 1;
 	}
-	phase1_err_fin(dev, ctx, de);
+	phase1_done(dev, de, VB2_BUF_STATE_ERROR);
 }
 
 /* Always called in irq context (this is good) */
 static void phase1_cb(struct hevc_d_dev *const dev, void *v)
 {
 	struct hevc_d_dec_env *const de = v;
-	struct hevc_d_ctx *const ctx = de->ctx;
 
 	de->p1_status = check_status(dev);
 
@@ -2103,23 +2105,11 @@ static void phase1_cb(struct hevc_d_dev *const dev, void *v)
 		return;
 	}
 
-	v4l2_m2m_buf_done(de->src_buf, VB2_BUF_STATE_DONE);
-	de->src_buf = NULL;
-
-	/* All phase1 error paths done - it is safe to inc p2idx */
-	ctx->p2idx =
-		(ctx->p2idx + 1 >= HEVC_D_P2BUF_COUNT) ? 0 : ctx->p2idx + 1;
-
-	/* Renable the next setup if we were blocking */
-	if (atomic_add_return(-1, &ctx->p1out) >= HEVC_D_P1BUF_COUNT - 1)
-		v4l2_m2m_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx);
-
-	hevc_d_hw_irq_active2_claim(dev, &de->irq_ent, phase2_claimed, de);
-
+	phase1_done(dev, de, VB2_BUF_STATE_DONE);
 	return;
 
 fail:
-	phase1_err_fin(dev, ctx, de);
+	phase1_done(dev, de, VB2_BUF_STATE_ERROR);
 }
 
 static void phase1_claimed(struct hevc_d_dev *const dev, void *v)
@@ -2159,11 +2149,15 @@ static void phase1_claimed(struct hevc_d_dev *const dev, void *v)
 
 	/* Start the h/w */
 	apb_write_vc_addr_final(dev, RPI_CFBASE, de->cmd.addr);
-
 	return;
 
 fail:
-	phase1_err_fin(dev, ctx, de);
+	phase1_done(dev, de, VB2_BUF_STATE_ERROR);
+}
+
+static void phase1_err_claimed(struct hevc_d_dev *const dev, void *v)
+{
+	phase1_done(dev, v, VB2_BUF_STATE_ERROR);
 }
 
 static void dec_state_delete(struct hevc_d_ctx *const ctx)
