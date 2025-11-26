@@ -2306,9 +2306,6 @@ void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 	req = src_buf->vb2_buf.req_obj.req;
 	ctx->dec0 = NULL;
 
-	ctx->p1idx = (ctx->p1idx + 1 >= HEVC_D_P1BUF_COUNT) ?
-						0 : ctx->p1idx + 1;
-
 	/* We know we have src & dst so no need to test */
 	de->src_buf = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 	de->frame_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);

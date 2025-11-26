@@ -120,7 +120,6 @@ struct hevc_d_ctx {
 
 	struct hevc_d_dec_env *dec_pool;
 
-	unsigned int p1idx;
 	atomic_t p1out;
 
 	unsigned int p2idx;
