@@ -1562,7 +1562,7 @@ static inline bool is_ref_unit_type(const unsigned int nal_unit_type)
 	return (nal_unit_type & ~0xe) != 0;
 }
 
-void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
+static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 {
 	struct hevc_d_dev *const dev = ctx->dev;
 	const struct v4l2_ctrl_hevc_decode_params *const dec =
@@ -1583,15 +1583,17 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	unsigned int ctb_size_y;
 	bool sps_changed = false;
 
+	de = dec_env_new(ctx);
+	if (!de) {
+		v4l2_err(&dev->v4l2_dev, "Failed to find free decode env\n");
+		return -1;
+	}
+	ctx->dec0 = de;
+
 	s->sh = NULL;  /* Avoid use until in the slice loop */
 
 	slice_temporal_mvp = (sh0->flags &
 		   V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_TEMPORAL_MVP_ENABLED);
-
-	if (de) {
-		v4l2_warn(&dev->v4l2_dev, "Decode env set unexpectedly");
-		goto fail;
-	}
 
 	/* Frame start */
 
@@ -1616,13 +1618,6 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		if (rv)
 			goto fail;
 	}
-
-	de = dec_env_new(ctx);
-	if (!de) {
-		v4l2_err(&dev->v4l2_dev, "Failed to find free decode env\n");
-		goto fail;
-	}
-	ctx->dec0 = de;
 
 	ctb_size_y =
 		1U << (s->sps.log2_min_luma_coding_block_size_minus3 +
@@ -1902,12 +1897,12 @@ void hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	}
 
 	de->state = HEVC_D_DECODE_PHASE1;
-	return;
+	return 0;
 
 fail:
-	if (de)
-		/* Actual error reporting happens in Trigger */
-		de->state = HEVC_D_DECODE_ERROR_DONE;
+	/* Actual error reporting happens in Trigger */
+	de->state = HEVC_D_DECODE_ERROR_DONE;
+	return 0;
 }
 
 /* Handle PU and COEFF stream overflow
@@ -2302,47 +2297,28 @@ void hevc_d_h265_trigger(struct hevc_d_ctx *ctx)
 	struct hevc_d_dec_env *const de = ctx->dec0;
 	struct vb2_v4l2_buffer *src_buf;
 	struct media_request *req;
+	hevc_d_irq_callback p1_cb;
+
+	p1_cb = (de->state == HEVC_D_DECODE_PHASE1) ? phase1_claimed :
+						      phase1_err_claimed;
 
 	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	req = src_buf->vb2_buf.req_obj.req;
+	ctx->dec0 = NULL;
 
-	switch (!de ? HEVC_D_DECODE_ERROR_DONE : de->state) {
-	default:
-		v4l2_err(&dev->v4l2_dev, "%s: Unexpected state: %d\n", __func__,
-			 de->state);
-		fallthrough;
-	case HEVC_D_DECODE_ERROR_DONE:
-		ctx->dec0 = NULL;
-		dec_env_delete(de);
-		v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
-						 VB2_BUF_STATE_ERROR);
-		media_request_manual_complete(req);
-		break;
+	ctx->p1idx = (ctx->p1idx + 1 >= HEVC_D_P1BUF_COUNT) ?
+						0 : ctx->p1idx + 1;
 
-	case HEVC_D_DECODE_PHASE1:
-		ctx->dec0 = NULL;
+	/* We know we have src & dst so no need to test */
+	de->src_buf = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
+	de->frame_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
+	de->request = req;
 
-		ctx->p1idx = (ctx->p1idx + 1 >= HEVC_D_P1BUF_COUNT) ?
-							0 : ctx->p1idx + 1;
+	/* Enable the next setup if our Q isn't too big */
+	if (atomic_add_return(1, &ctx->p1out) < HEVC_D_P1BUF_COUNT)
+		v4l2_m2m_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx);
 
-		/* We know we have src & dst so no need to test */
-		de->src_buf = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
-		de->frame_buf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
-		de->request = req;
-
-		/* We could get rid of the src buffer here if we've already
-		 * copied it, but we don't copy the last buffer unless it
-		 * didn't return a contig dma addr, and that shouldn't happen
-		 */
-
-		/* Enable the next setup if our Q isn't too big */
-		if (atomic_add_return(1, &ctx->p1out) < HEVC_D_P1BUF_COUNT)
-			v4l2_m2m_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx);
-
-		hevc_d_hw_irq_active1_claim(dev, &de->irq_ent, phase1_claimed,
-					    de);
-		break;
-	}
+	hevc_d_hw_irq_active1_claim(dev, &de->irq_ent, p1_cb, de);
 }
 
 static int try_ctrl_sps(struct v4l2_ctrl *ctrl)
@@ -2481,7 +2457,8 @@ void hevc_d_device_run(void *priv)
 
 	v4l2_m2m_buf_copy_metadata(run.src, run.dst, true);
 
-	hevc_d_h265_setup(ctx, &run);
+	if (hevc_d_h265_setup(ctx, &run) == -1)
+		goto fail;
 
 	/* Complete request(s) controls */
 	v4l2_ctrl_request_complete(src_req, &ctx->hdl);
