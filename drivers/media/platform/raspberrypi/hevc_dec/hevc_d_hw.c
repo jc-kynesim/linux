@@ -314,6 +314,8 @@ void hevc_d_hw_irq_active2_irq(struct hevc_d_dev *dev,
  */
 void hevc_d_hw_stop_clock(struct hevc_d_dev *dev)
 {
+	dev_info(dev->dev, "Stop clock\n");
+
 	clk_disable_unprepare(dev->clock);
 }
 
@@ -333,6 +335,9 @@ int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
 		dev_err(dev->dev, "Failed to enable clock\n");
 		return rv;
 	}
+
+	dev_info(dev->dev, "Start clock: %lu\n", dev->max_clock_rate);
+
 	return 0;
 }
 
@@ -361,6 +366,8 @@ static int hw_setup(struct hevc_d_dev *dev)
 	dev->max_clock_rate = rpi_firmware_clk_get_max_rate(firmware,
 							    RPI_FIRMWARE_HEVC_CLK_ID);
 	rpi_firmware_put(firmware);
+
+	dev_info(dev->dev, "Max clock rate = %lu\n", dev->max_clock_rate);
 
 	/* Disable IRQs & reset anything pending */
 	irq_write(dev, 0,

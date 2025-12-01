@@ -130,6 +130,8 @@ static int hevc_d_open(struct file *file)
 		goto err_ctx;
 
 	v4l2_fh_add(&ctx->fh, file);
+
+	hevc_d_hw_start_clock(dev);
 	return 0;
 
 err_ctx:
@@ -153,6 +155,8 @@ static int hevc_d_release(struct file *file)
 
 	v4l2_fh_exit(&ctx->fh);
 	mutex_destroy(&ctx->ctx_mutex);
+
+	hevc_d_hw_stop_clock(ctx->dev);
 
 	kfree(ctx);
 	return 0;
