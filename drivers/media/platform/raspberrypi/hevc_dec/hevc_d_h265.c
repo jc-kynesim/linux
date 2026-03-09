@@ -2385,6 +2385,8 @@ void hevc_d_device_run(void *priv)
 	struct media_request *src_req;
 	const struct v4l2_ctrl *ctrl;
 
+	BUG_ON(!ctx->dec_pool);
+
 	run.src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	run.dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
 

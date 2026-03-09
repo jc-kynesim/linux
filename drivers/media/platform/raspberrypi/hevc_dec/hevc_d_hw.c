@@ -328,6 +328,8 @@ int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
 		return rv;
 	}
 
+	dev_info(dev->dev, "Max clock set to %lu\n", dev->max_clock_rate);
+
 	rv = clk_prepare_enable(dev->clock);
 	if (rv) {
 		dev_err(dev->dev, "Failed to enable clock\n");

@@ -17,6 +17,8 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-mem2mem.h>
 
+#include <linux/delay.h>
+
 #include "hevc_d.h"
 #include "hevc_d_h265.h"
 #include "hevc_d_hw.h"
@@ -531,12 +533,28 @@ static int hevc_d_start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct hevc_d_dev *dev = ctx->dev;
 	int ret = 0;
 
+	v4l2_info(&dev->v4l2_dev, "%s: qtype=%d\n", __func__, vq->type);
+
 	v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, vq);
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
+		u32 ver;
+
+		v4l2_info(&dev->v4l2_dev, "%s: qtype=%d: Go clock 0\n", __func__, vq->type);
+
 		ret = hevc_d_hw_start_clock(dev);
 		if (ret)
 			goto fail_cleanup;
+
+		v4l2_info(&dev->v4l2_dev, "%s: qtype=%d: Go clock 1\n", __func__, vq->type);
+
+		usleep_range(50000, 100000);
+
+		v4l2_info(&dev->v4l2_dev, "%s: qtype=%d: Go clock 2\n", __func__, vq->type);
+
+		ver = apb_read(dev, RPI_VERSION);
+
+		v4l2_info(&dev->v4l2_dev, "%s: qtype=%d: Go clock ver=%04x\n", __func__, vq->type, ver);
 
 		ret = hevc_d_h265_start(ctx);
 		if (ret)
@@ -557,6 +575,8 @@ static void hevc_d_stop_streaming(struct vb2_queue *vq)
 {
 	struct hevc_d_ctx *ctx = vb2_get_drv_priv(vq);
 	struct hevc_d_dev *dev = ctx->dev;
+
+	v4l2_info(&dev->v4l2_dev, "%s: qtype=%d\n", __func__, vq->type);
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		hevc_d_h265_stop(ctx);
