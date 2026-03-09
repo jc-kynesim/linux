@@ -217,7 +217,7 @@ static int hevc_d_probe(struct platform_device *pdev)
 
 	ret = hevc_d_hw_probe(dev);
 	if (ret) {
-		dev_err(&pdev->dev, "Failed to probe hardware - %d\n", ret);
+		dev_err_probe(&pdev->dev, ret, "Failed to probe hardware\n");
 		return ret;
 	}
 
@@ -225,7 +225,7 @@ static int hevc_d_probe(struct platform_device *pdev)
 
 	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
 	if (ret) {
-		dev_err(&pdev->dev, "Failed to register V4L2 device\n");
+		dev_err_probe(&pdev->dev, ret, "Failed to register V4L2 device\n");
 		return ret;
 	}
 
