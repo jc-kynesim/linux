@@ -327,7 +327,7 @@ static struct platform_driver hevc_d_driver = {
 	.remove		= hevc_d_remove,
 	.driver		= {
 		.name = HEVC_D_NAME,
-		.of_match_table	= of_match_ptr(hevc_d_dt_match),
+		.of_match_table	= hevc_d_dt_match,
 	},
 };
 module_platform_driver(hevc_d_driver);
