@@ -178,6 +178,8 @@ struct hevc_d_dev {
 	void __iomem		*base_irq;
 	void __iomem		*base_h265;
 
+	struct mutex		clk_mutex;
+	unsigned int		clk_refs;
 	struct clk		*clock;
 	unsigned long		max_clock_rate;
 

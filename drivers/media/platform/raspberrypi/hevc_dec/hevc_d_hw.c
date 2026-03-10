@@ -233,6 +233,17 @@ static irqreturn_t hevc_d_irq_irq(int irq, void *data)
 		IRQ_WAKE_THREAD : IRQ_HANDLED;
 }
 
+static void irq_clear_disable(struct hevc_d_dev * const dev)
+{
+	irq_write(dev, ARG_IC_ICTRL, ARG_IC_ICTRL_ACTIVE1_INT_SET | ARG_IC_ICTRL_ACTIVE2_INT_SET);
+}
+
+static void irq_clear_enable(struct hevc_d_dev * const dev)
+{
+	irq_write(dev, ARG_IC_ICTRL, ARG_IC_ICTRL_ACTIVE1_INT_SET | ARG_IC_ICTRL_ACTIVE2_INT_SET);
+	irq_write(dev, ARG_IC_ICTRL, ARG_IC_ICTRL_ACTIVE1_EN_SET | ARG_IC_ICTRL_ACTIVE2_EN_SET);
+}
+
 static void do_thread(struct hevc_d_dev * const dev,
 		      struct hevc_d_hw_irq_ctrl *const ictl)
 {
@@ -308,39 +319,54 @@ void hevc_d_hw_irq_active2_irq(struct hevc_d_dev *dev,
 }
 
 /*
- * Stop the clock for this context
- * clk_disable_unprepare does ref counting so this will not actually
- * disable the clock if there are other running contexts
+ * Stop the clock & disable irqs
+ * Ref counted so clock is only actaully disabled once the last context has
+ * stopped using it.
  */
 void hevc_d_hw_stop_clock(struct hevc_d_dev *dev)
 {
-	clk_disable_unprepare(dev->clock);
+	mutex_lock(&dev->clk_mutex);
+	if (--dev->clk_refs == 0) {
+		irq_clear_disable(dev);
+		clk_disable_unprepare(dev->clock);
+	}
+	mutex_unlock(&dev->clk_mutex);
 }
 
-/* Always starts the clock if it isn't already on this ctx */
+/*
+ * Start the clock and enable irqs
+ * Ref counted so if already running then this does not try to start it again
+ */
 int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
 {
-	int rv;
+	int rv = 0;
+
+	mutex_lock(&dev->clk_mutex);
+	if (dev->clk_refs++ != 0)
+		goto done;
 
 	rv = clk_set_min_rate(dev->clock, dev->max_clock_rate);
 	if (rv) {
 		dev_err(dev->dev, "Failed to set clock rate\n");
-		return rv;
+		goto done;
 	}
-
 	rv = clk_prepare_enable(dev->clock);
 	if (rv) {
+		--dev->clk_refs;
 		dev_err(dev->dev, "Failed to enable clock\n");
-		return rv;
+		goto done;
 	}
-	return 0;
+	irq_clear_enable(dev);
+
+done:
+	mutex_unlock(&dev->clk_mutex);
+	return rv;
 }
 
 static int hw_setup(struct hevc_d_dev *dev)
 {
 	struct device_node *node;
 	u32 ver;
-	u32 irq_stat;
 	struct rpi_firmware *firmware;
 
 	ver = apb_read(dev, RPI_VERSION);
@@ -348,6 +374,8 @@ static int hw_setup(struct hevc_d_dev *dev)
 		dev_err(dev->dev, "Unexpected version %#x only 0x202 supported\n", ver);
 		return -ENODEV;
 	}
+
+	irq_clear_disable(dev);
 
 	node = rpi_firmware_find_node();
 	if (!node)
@@ -361,17 +389,6 @@ static int hw_setup(struct hevc_d_dev *dev)
 	dev->max_clock_rate = rpi_firmware_clk_get_max_rate(firmware,
 							    RPI_FIRMWARE_HEVC_CLK_ID);
 	rpi_firmware_put(firmware);
-
-	/*
-	 * Enable IRQs & reset anything pending
-	 * Whilst this seems the wrong way round the h/w doesn't actually
-	 * set the IRQ status bits till the IRQs are enabled. As we haven't
-	 * got the IRQ yet this should still be safe.
-	 */
-	irq_write(dev, ARG_IC_ICTRL,
-		  ARG_IC_ICTRL_ACTIVE1_EN_SET | ARG_IC_ICTRL_ACTIVE2_EN_SET);
-	irq_stat = irq_read(dev, ARG_IC_ICTRL);
-	irq_write(dev, ARG_IC_ICTRL, irq_stat);
 
 	return 0;
 }
@@ -414,6 +431,8 @@ int hevc_d_hw_probe(struct hevc_d_dev *dev)
 	if (ret)
 		dev_err(dev->dev, "Failed to request IRQ - %d\n", ret);
 
+	dev->clk_refs = 0;
+	mutex_init(&dev->clk_mutex);
 	return ret;
 }
 
@@ -423,7 +442,10 @@ void hevc_d_hw_remove(struct hevc_d_dev *dev)
 	 * IRQ auto freed on unload so no need to do it here
 	 * ioremap auto freed on unload
 	 */
+	irq_clear_disable(dev);
 	ictl_uninit(&dev->ic_active1);
 	ictl_uninit(&dev->ic_active2);
+
+	mutex_destroy(&dev->clk_mutex);
 }
 
