@@ -14,6 +14,8 @@
 #ifndef _HEVC_D_HW_H_
 #define _HEVC_D_HW_H_
 
+#include <linux/io.h>
+
 struct hevc_d_hw_irq_ent {
 	struct hevc_d_hw_irq_ent *next;
 	hevc_d_irq_callback cb;
