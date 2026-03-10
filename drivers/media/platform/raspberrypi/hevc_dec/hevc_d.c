@@ -11,9 +11,9 @@
  * Copyright (C) 2018 Bootlin
  */
 
+#include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
 #include <linux/module.h>
-#include <linux/of.h>
 
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
