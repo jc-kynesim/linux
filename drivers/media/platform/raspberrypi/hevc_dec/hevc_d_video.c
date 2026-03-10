@@ -35,7 +35,7 @@ size_t hevc_d_round_up_size(const size_t x)
 	return x >= (3 << n) ? 4 << n : (3 << n);
 }
 
-size_t hevc_d_bit_buf_size(unsigned int w, unsigned int h, unsigned int bits_minus8)
+static u32 bit_buf_size(unsigned int w, unsigned int h, unsigned int bits_minus8)
 {
 	const size_t wxh = w * h;
 	size_t bits_alloc;
@@ -51,42 +51,39 @@ size_t hevc_d_bit_buf_size(unsigned int w, unsigned int h, unsigned int bits_min
 		wxh * 3 / 8;
 	/* Allow for bit depth */
 	bits_alloc += (bits_alloc * bits_minus8) / 8;
-	return hevc_d_round_up_size(bits_alloc);
+	return (u32)hevc_d_round_up_size(bits_alloc);
 }
 
 void hevc_d_prepare_src_format(struct v4l2_pix_format_mplane *pix_fmt)
 {
-	size_t size;
-	u32 w;
-	u32 h;
+	unsigned int width = pix_fmt->width;
+	unsigned int height = pix_fmt->height;
+	unsigned int sizeimage = pix_fmt->plane_fmt[0].sizeimage;
 
-	w = pix_fmt->width;
-	h = pix_fmt->height;
-	if (!w || !h) {
-		w = HEVC_D_DEFAULT_WIDTH;
-		h = HEVC_D_DEFAULT_HEIGHT;
-	}
-	if (w > HEVC_D_MAX_WIDTH)
-		w = HEVC_D_MAX_WIDTH;
-	if (h > HEVC_D_MAX_HEIGHT)
-		h = HEVC_D_MAX_HEIGHT;
+	if (!width)
+		width = HEVC_D_DEFAULT_WIDTH;
+	else
+		width = clamp(width, HEVC_D_MIN_WIDTH, HEVC_D_MAX_WIDTH);
+	if (!height)
+		height = HEVC_D_DEFAULT_HEIGHT;
+	else
+		height = clamp(height, HEVC_D_MIN_HEIGHT, HEVC_D_MAX_HEIGHT);
 
-	if (!pix_fmt->plane_fmt[0].sizeimage ||
-	    pix_fmt->plane_fmt[0].sizeimage > SZ_32M) {
-		/* Unspecified or way too big - pick max for size */
-		size = hevc_d_bit_buf_size(w, h, 2);
-	}
+	/* If unspecified or way too big - pick max for size */
+	if (!sizeimage || sizeimage > SZ_32M)
+		sizeimage = bit_buf_size(width, height, 2);
+
 	/* Set a minimum */
-	size = max_t(u32, SZ_4K, pix_fmt->plane_fmt[0].sizeimage);
+	sizeimage = max(SZ_4K, sizeimage);
 
 	pix_fmt->pixelformat = V4L2_PIX_FMT_HEVC_SLICE;
-	pix_fmt->width = w;
-	pix_fmt->height = h;
+	pix_fmt->width = width;
+	pix_fmt->height = height;
 	pix_fmt->num_planes = 1;
 	pix_fmt->field = V4L2_FIELD_NONE;
 	/* Zero bytes per line for encoded source. */
 	pix_fmt->plane_fmt[0].bytesperline = 0;
-	pix_fmt->plane_fmt[0].sizeimage = size;
+	pix_fmt->plane_fmt[0].sizeimage = sizeimage;
 }
 
 /* Take any pix_format and make it valid */
