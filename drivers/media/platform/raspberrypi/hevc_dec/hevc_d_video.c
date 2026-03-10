@@ -27,14 +27,6 @@ static inline struct hevc_d_ctx *hevc_d_file2ctx(struct file *file)
 	return container_of(file->private_data, struct hevc_d_ctx, fh);
 }
 
-/* constrain x to y,y*2 */
-static inline unsigned int constrain2x(unsigned int x, unsigned int y)
-{
-	return (x < y) ?
-			y :
-			(x > y * 2) ? y : x;
-}
-
 size_t hevc_d_round_up_size(const size_t x)
 {
 	/* Admit no size < 256 */
