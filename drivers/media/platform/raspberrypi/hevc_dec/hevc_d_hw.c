@@ -25,8 +25,6 @@
 #include <media/videobuf2-core.h>
 #include <media/v4l2-mem2mem.h>
 
-#include <soc/bcm2835/raspberrypi-firmware.h>
-
 #include "hevc_d.h"
 #include "hevc_d_hw.h"
 
@@ -345,11 +343,6 @@ int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
 	if (dev->clk_refs++ != 0)
 		goto done;
 
-	rv = clk_set_min_rate(dev->clock, dev->max_clock_rate);
-	if (rv) {
-		dev_err(dev->dev, "Failed to set clock rate\n");
-		goto done;
-	}
 	rv = clk_prepare_enable(dev->clock);
 	if (rv) {
 		--dev->clk_refs;
@@ -365,9 +358,7 @@ done:
 
 static int hw_setup(struct hevc_d_dev *dev)
 {
-	struct device_node *node;
 	u32 ver;
-	struct rpi_firmware *firmware;
 
 	ver = apb_read(dev, RPI_VERSION);
 	if (ver != 0x202) {
@@ -376,19 +367,6 @@ static int hw_setup(struct hevc_d_dev *dev)
 	}
 
 	irq_clear_disable(dev);
-
-	node = rpi_firmware_find_node();
-	if (!node)
-		return -EINVAL;
-
-	firmware = rpi_firmware_get(node);
-	of_node_put(node);
-	if (!firmware)
-		return -EPROBE_DEFER;
-
-	dev->max_clock_rate = rpi_firmware_clk_get_max_rate(firmware,
-							    RPI_FIRMWARE_HEVC_CLK_ID);
-	rpi_firmware_put(firmware);
 
 	return 0;
 }
