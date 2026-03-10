@@ -181,7 +181,6 @@ struct hevc_d_dev {
 	struct mutex		clk_mutex;
 	unsigned int		clk_refs;
 	struct clk		*clock;
-	unsigned long		max_clock_rate;
 
 	struct hevc_d_hw_irq_ctrl ic_active1;
 	struct hevc_d_hw_irq_ctrl ic_active2;
