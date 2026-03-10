@@ -11,7 +11,6 @@
  * Copyright (C) 2018 Bootlin
  */
 
-#include <media/videobuf2-dma-contig.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-event.h>
