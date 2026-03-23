@@ -761,9 +761,12 @@ static void pre_slice_decode(struct hevc_d_dec_env *const de,
 		msg_slice(de, cmd_slice);
 
 		if (s->slice_temporal_mvp) {
-			const __u8 *const rpl = collocated_from_l0_flag ?
+			const u8 *const rpl = collocated_from_l0_flag ?
 						sh->ref_idx_l0 : sh->ref_idx_l1;
-			de->dpbno_col = rpl[sh->collocated_ref_idx];
+			if (sh->collocated_ref_idx >= dec->num_active_dpb_entries)
+				de->dpbno_col = rpl[0];
+			else
+				de->dpbno_col = rpl[sh->collocated_ref_idx];
 		}
 
 		/* Write reference picture descriptions */
@@ -1859,29 +1862,20 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	}
 
 	if (de->dpbno_col != ~0U) {
-		if (de->dpbno_col >= dec->num_active_dpb_entries) {
-			v4l2_err(&dev->v4l2_dev,
-				 "Col ref index %d >= %d\n",
-				 de->dpbno_col,
-				 dec->num_active_dpb_entries);
-		} else {
-			/* Standard requires that the col pic is constant for
-			 * the duration of the pic (text of collocated_ref_idx
-			 * in H265-2 2018 7.4.7.1)
+		/* Standard requires that the col pic is constant for
+		 * the duration of the pic (text of collocated_ref_idx
+		 * in H265-2 2018 7.4.7.1)
+		 */
+
+		/* Spot the collocated ref in passing */
+		de->col_aux = aux_q_ref(ctx, dpb_q_aux[de->dpbno_col]);
+
+		if (!de->col_aux) {
+			v4l2_warn(&dev->v4l2_dev, "Missing DPB ent for col\n");
+			/* Need to abort if this fails as P2 may
+			 * explode on bad data
 			 */
-
-			/* Spot the collocated ref in passing */
-			de->col_aux = aux_q_ref(ctx,
-						dpb_q_aux[de->dpbno_col]);
-
-			if (!de->col_aux) {
-				v4l2_warn(&dev->v4l2_dev,
-					  "Missing DPB ent for col\n");
-				/* Need to abort if this fails as P2 may
-				 * explode on bad data
-				 */
-				goto fail;
-			}
+			goto fail;
 		}
 	}
 
