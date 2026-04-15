@@ -193,7 +193,8 @@ struct hevc_d_dec_env {
 	unsigned int luma_stride;
 	dma_addr_t frame_chroma_addr;
 	unsigned int chroma_stride;
-	dma_addr_t ref_addrs[16][2];
+	unsigned int frame_slot;
+	unsigned int ref_slots[16];
 	struct hevc_d_q_aux *frame_aux;
 	struct hevc_d_q_aux *col_aux;
 
@@ -345,7 +346,7 @@ static struct hevc_d_q_aux *aux_q_alloc(struct hevc_d_ctx *const ctx,
 	 */
 	aq->refcount = 1;
 	aq->q_index = q_index;
-	ctx->aux_ents[q_index] = aq;
+	ctx->slots[q_index].aux = aq;
 	return aq;
 
 fail:
@@ -364,7 +365,7 @@ static struct hevc_d_q_aux *aux_q_new(struct hevc_d_ctx *const ctx,
 	 * If we already have this allocated to a slot then use that
 	 * and assume that it will all work itself out in the pipeline
 	 */
-	aq = ctx->aux_ents[q_index];
+	aq = ctx->slots[q_index].aux;
 	if (aq) {
 		++aq->refcount;
 	} else {
@@ -374,7 +375,7 @@ static struct hevc_d_q_aux *aux_q_new(struct hevc_d_ctx *const ctx,
 			aq->next = NULL;
 			aq->refcount = 1;
 			aq->q_index = q_index;
-			ctx->aux_ents[q_index] = aq;
+			ctx->slots[q_index].aux = aq;
 		}
 	}
 	spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
@@ -392,7 +393,7 @@ static struct hevc_d_q_aux *aux_q_ref_idx(struct hevc_d_ctx *const ctx,
 	struct hevc_d_q_aux *aq;
 
 	spin_lock_irqsave(&ctx->aux_lock, lockflags);
-	aq = ctx->aux_ents[q_index];
+	aq = ctx->slots[q_index].aux;
 	if (aq)
 		++aq->refcount;
 	spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
@@ -428,7 +429,7 @@ static void aux_q_release(struct hevc_d_ctx *const ctx,
 	if (--aq->refcount == 0) {
 		aq->next = ctx->aux_free;
 		ctx->aux_free = aq;
-		ctx->aux_ents[aq->q_index] = NULL;
+		ctx->slots[aq->q_index].aux = NULL;
 		aq->q_index = ~0U;
 		aq->good = false;
 	}
@@ -1640,6 +1641,9 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	de->chroma_stride = de->luma_stride / 2;
 	de->frame_chroma_addr =
 		vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1);
+	de->frame_slot = run->dst->vb2_buf.index;
+	ctx->slots[run->dst->vb2_buf.index].refybase = VC_ADDR(vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 0));
+	ctx->slots[run->dst->vb2_buf.index].refcbase = VC_ADDR(vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1));
 	de->frame_aux = NULL;
 
 	if (s->sps.bit_depth_luma_minus8 == 0) {
@@ -1674,10 +1678,8 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	 * Fill in ref planes with our address s.t. if we mess up refs
 	 * somehow then we still have a valid address entry
 	 */
-	for (i = 0; i != 16; ++i) {
-		de->ref_addrs[i][0] = de->frame_luma_addr;
-		de->ref_addrs[i][1] = de->frame_chroma_addr;
-	}
+	for (i = 0; i != 16; ++i)
+		de->ref_slots[i] = de->frame_slot;
 
 	/*
 	 * Stash initial temporal_mvp flag
@@ -1837,10 +1839,11 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 					  buffer_index);
 		}
 
-		de->ref_addrs[i][0] =
-			vb2_dma_contig_plane_dma_addr(buf, 0);
-		de->ref_addrs[i][1] =
-			vb2_dma_contig_plane_dma_addr(buf, 1);
+		de->ref_slots[i] = buf->index;
+		ctx->slots[buf->index].refybase =
+			VC_ADDR(vb2_dma_contig_plane_dma_addr(buf, 0));
+		ctx->slots[buf->index].refcbase =
+			VC_ADDR(vb2_dma_contig_plane_dma_addr(buf, 1));
 	}
 
 	/* Move DPB from temp */
@@ -1972,13 +1975,12 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	for (i = 0; i < 16; i++) {
 		/* Strides are in fact unused but fill in anyway */
 		unsigned int roff = i * RPI_REFREGS_SIZE;
+		struct hevc_d_slot *s = de->ctx->slots + de->ref_slots[i];
 
-		apb_write_vc_addr(dev, RPI_REFYBASE0 + roff,
-				  de->ref_addrs[i][0]);
+		apb_write(dev, RPI_REFYBASE0 + roff, s->refybase);
 		apb_write_vc_len(dev, RPI_REFYSTRIDE0 + roff,
 				 de->luma_stride);
-		apb_write_vc_addr(dev, RPI_REFCBASE0 + roff,
-				  de->ref_addrs[i][1]);
+		apb_write_vc_addr(dev, RPI_REFCBASE0 + roff, s->refcbase);
 		apb_write_vc_len(dev, RPI_REFCSTRIDE0 + roff,
 				 de->chroma_stride);
 	}

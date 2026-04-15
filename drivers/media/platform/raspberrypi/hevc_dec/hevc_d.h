@@ -138,7 +138,13 @@ struct hevc_d_ctx {
 	spinlock_t aux_lock;
 	struct hevc_d_q_aux *aux_free;
 
-	struct hevc_d_q_aux *aux_ents[HEVC_D_AUX_ENT_COUNT];
+	struct hevc_d_slot {
+		bool good;
+		u32 poc;
+		u32 refybase;
+		u32 refcbase;
+		struct hevc_d_q_aux *aux;
+	} slots[HEVC_D_AUX_ENT_COUNT];
 
 	unsigned int colmv_stride;
 	unsigned int colmv_picsize;
