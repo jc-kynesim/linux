@@ -136,6 +136,8 @@ static size_t next_size(const size_t x)
 struct hevc_d_q_aux {
 	unsigned int refcount;
 	unsigned int q_index;
+	/* Is this aux entry set correctly? Only set on release or in P2 */
+	bool good;
 	struct hevc_d_q_aux *next;
 	struct hevc_d_hwbuf col;
 };
@@ -428,6 +430,7 @@ static void aux_q_release(struct hevc_d_ctx *const ctx,
 		ctx->aux_free = aq;
 		ctx->aux_ents[aq->q_index] = NULL;
 		aq->q_index = ~0U;
+		aq->good = false;
 	}
 	spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
 }
@@ -1925,6 +1928,9 @@ static void phase2_done(struct hevc_d_dev *const dev,
 			struct hevc_d_dec_env *const de,
 			enum vb2_buffer_state state)
 {
+	if (de->frame_aux)
+		de->frame_aux->good = (state == VB2_BUF_STATE_DONE);
+
 	v4l2_m2m_buf_done(de->frame_buf, state);
 	de->frame_buf = NULL;
 
@@ -1946,6 +1952,12 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 {
 	struct hevc_d_dec_env *const de = v;
 	unsigned int i;
+
+	/* Must give up if col aux is broken */
+	if (de->col_aux && !de->col_aux->good) {
+		phase2_done(dev, de, VB2_BUF_STATE_ERROR);
+		return;
+	}
 
 	apb_write_vc_addr(dev, RPI_PURBASE, de->pu_base_vc);
 	apb_write_vc_len(dev, RPI_PURSTRIDE, de->pu_stride);
