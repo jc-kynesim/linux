@@ -11,7 +11,8 @@
  * Copyright (C) 2018 Bootlin
  */
 
-#include <linux/delay.h>
+//#include <linux/delay.h>
+#include <linux/math.h>
 #include <linux/types.h>
 
 #include <media/videobuf2-dma-contig.h>
@@ -196,6 +197,9 @@ struct hevc_d_dec_env {
 	dma_addr_t ref_addrs[16][2];
 	struct hevc_d_q_aux *frame_aux;
 	struct hevc_d_q_aux *col_aux;
+
+	unsigned int frame_slot;
+	unsigned int ref_slots[16];
 
 	dma_addr_t pu_base_vc;
 	dma_addr_t coeff_base_vc;
@@ -1641,6 +1645,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	de->frame_chroma_addr =
 		vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1);
 	de->frame_aux = NULL;
+	de->frame_slot = run->dst->vb2_buf.index;
 
 	if (s->sps.bit_depth_luma_minus8 == 0) {
 		if (ctx->dst_fmt.pixelformat != V4L2_PIX_FMT_NV12MT_COL128) {
@@ -1677,6 +1682,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	for (i = 0; i != 16; ++i) {
 		de->ref_addrs[i][0] = de->frame_luma_addr;
 		de->ref_addrs[i][1] = de->frame_chroma_addr;
+		de->ref_slots[i] = ~0U;
 	}
 
 	/*
@@ -1841,6 +1847,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 			vb2_dma_contig_plane_dma_addr(buf, 0);
 		de->ref_addrs[i][1] =
 			vb2_dma_contig_plane_dma_addr(buf, 1);
+		de->ref_slots[i] = buf->index;
 	}
 
 	/* Move DPB from temp */
@@ -1948,9 +1955,51 @@ static void phase2_cb(struct hevc_d_dev *const dev, void *v)
 	phase2_done(dev, v, VB2_BUF_STATE_DONE);
 }
 
+static const struct hevc_d_slot *find_slot(struct hevc_d_dec_env *const de,
+				    const struct hevc_d_ctx *ctx,
+				    unsigned int n)
+{
+	const struct hevc_d_slot *slot = ctx->slots + n;
+	u32 poc;
+	u32 pocdiff = 0xffffffff;
+	unsigned int i;
+
+	if (slot->refybase)
+		return slot;
+
+	poc = slot->poc;
+
+	slot = NULL;
+	for (i = 0; i != 16; ++i) {
+		const struct hevc_d_slot *t = ctx->slots + i;
+		u32 d = abs((s32)(poc - t->poc));
+		if (t->refybase && d < pocdiff) {
+			slot = t;
+			pocdiff = d;
+		}
+	}
+	return slot;
+}
+
+static void phase2_err_claimed(struct hevc_d_dev *const dev, void *v)
+{
+	struct hevc_d_dec_env *const de = v;
+	struct hevc_d_ctx *const ctx = de->ctx;
+	struct hevc_d_slot *const slot = ctx->slots + de->frame_slot;
+
+	slot->refybase = 0;
+	slot->refcbase = 0;
+	slot->colbase = 0;
+	slot->poc = de->rpi_currpoc;
+
+	phase2_done(dev, de, VB2_BUF_STATE_ERROR);
+}
+
 static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 {
 	struct hevc_d_dec_env *const de = v;
+	struct hevc_d_ctx *const ctx = de->ctx;
+	struct hevc_d_slot *const slot = ctx->slots + de->frame_slot;
 	unsigned int i;
 
 	/* Must give up if col aux is broken */
@@ -1958,6 +2007,11 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 		phase2_done(dev, de, VB2_BUF_STATE_ERROR);
 		return;
 	}
+
+	slot->refybase = VC_ADDR(de->frame_luma_addr);
+	slot->refcbase = VC_ADDR(de->frame_chroma_addr);
+	slot->colbase = !de->frame_aux ? 0 : VC_ADDR(de->frame_aux->col.addr);
+	slot->poc = de->rpi_currpoc;
 
 	apb_write_vc_addr(dev, RPI_PURBASE, de->pu_base_vc);
 	apb_write_vc_len(dev, RPI_PURSTRIDE, de->pu_stride);
@@ -1972,15 +2026,27 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	for (i = 0; i < 16; i++) {
 		/* Strides are in fact unused but fill in anyway */
 		unsigned int roff = i * RPI_REFREGS_SIZE;
+		unsigned int n = de->ref_slots[i];
+		const struct hevc_d_slot *ref;
 
-		apb_write_vc_addr(dev, RPI_REFYBASE0 + roff,
-				  de->ref_addrs[i][0]);
-		apb_write_vc_len(dev, RPI_REFYSTRIDE0 + roff,
-				 de->luma_stride);
-		apb_write_vc_addr(dev, RPI_REFCBASE0 + roff,
-				  de->ref_addrs[i][1]);
-		apb_write_vc_len(dev, RPI_REFCSTRIDE0 + roff,
-				 de->chroma_stride);
+		if (n == ~0U) {
+			apb_write(dev, RPI_REFYBASE0 + roff, 0);
+			apb_write(dev, RPI_REFYSTRIDE0 + roff, 0);
+			apb_write(dev, RPI_REFCBASE0 + roff, 0);
+			apb_write(dev, RPI_REFCSTRIDE0 + roff, 0);
+		}
+		else if ((ref = find_slot(de, ctx, n))) {
+			apb_write(dev, RPI_REFYBASE0 + roff, ref->refybase);
+			apb_write_vc_len(dev, RPI_REFYSTRIDE0 + roff,
+					 de->luma_stride);
+			apb_write(dev, RPI_REFCBASE0 + roff, ref->refcbase);
+			apb_write_vc_len(dev, RPI_REFCSTRIDE0 + roff,
+					 de->chroma_stride);
+		}
+		else {
+			v4l2_err(&dev->v4l2_dev, "Ref %d slot %d fail\n", i, n);
+			goto fail;
+		}
 	}
 
 	apb_write(dev, RPI_CONFIG2, de->rpi_config2);
@@ -1994,17 +2060,28 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 			 de->ctx->colmv_stride);
 	apb_write_vc_addr(dev, RPI_MVBASE,
 			  !de->frame_aux ? 0 : de->frame_aux->col.addr);
+
+	if (de->dpbno_col == ~0U) {
+		apb_write_vc_addr(dev, RPI_COLBASE, 0);
+	}
+	else {
+		const struct hevc_d_slot *ref = find_slot(de, ctx, de->dpbno_col);
+		if (ref == NULL) {
+			v4l2_err(&dev->v4l2_dev, "Col slot %d fail\n", de->dpbno_col);
+			goto fail;
+		}
+		apb_write_vc_addr(dev, RPI_COLBASE, ref->colbase);
+	}
 	apb_write_vc_addr(dev, RPI_COLBASE,
 			  !de->col_aux ? 0 : de->col_aux->col.addr);
 
 	hevc_d_hw_irq_active2_irq(dev, &de->irq_ent, phase2_cb, de);
 
 	apb_write_final(dev, RPI_NUMROWS, de->pic_height_in_ctbs_y);
-}
+	return;
 
-static void phase2_err_claimed(struct hevc_d_dev *const dev, void *v)
-{
-	phase2_done(dev, v, VB2_BUF_STATE_ERROR);
+fail:
+	phase2_err_claimed(dev, de);
 }
 
 static void phase1_claimed(struct hevc_d_dev *const dev, void *v);

@@ -140,6 +140,13 @@ struct hevc_d_ctx {
 
 	struct hevc_d_q_aux *aux_ents[HEVC_D_AUX_ENT_COUNT];
 
+	struct hevc_d_slot {
+		u32 refybase;
+		u32 refcbase;
+		u32 colbase;
+		u32 poc;
+	} slots[HEVC_D_AUX_ENT_COUNT];
+
 	unsigned int colmv_stride;
 	unsigned int colmv_picsize;
 };
