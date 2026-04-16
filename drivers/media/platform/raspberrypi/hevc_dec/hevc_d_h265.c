@@ -2060,17 +2060,22 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 
 	if (de->dpbno_col == ~0U) {
 		apb_write_vc_addr(dev, RPI_COLBASE, 0);
+		if (de->col_aux) {
+			v4l2_err(&dev->v4l2_dev, "Col aux 0/~0!\n");
+		}
 	}
 	else {
-		const struct hevc_d_slot *ref = find_slot(de, ctx, de->dpbno_col);
+		unsigned int n = de->ref_slots[de->dpbno_col];
+		const struct hevc_d_slot *ref = find_slot(de, ctx, n == ~0U ? 0 : n);
+		#warning n == ~0???
 		if (ref == NULL) {
 			v4l2_err(&dev->v4l2_dev, "Col slot %d fail\n", de->dpbno_col);
 			goto fail;
 		}
-		apb_write_vc_addr(dev, RPI_COLBASE, ref->colbase);
+		apb_write(dev, RPI_COLBASE, ref->colbase);
 	}
-	apb_write_vc_addr(dev, RPI_COLBASE,
-			  !de->col_aux ? 0 : de->col_aux->col.addr);
+//	apb_write_vc_addr(dev, RPI_COLBASE,
+//			  !de->col_aux ? 0 : de->col_aux->col.addr);
 
 	hevc_d_hw_irq_active2_irq(dev, &de->irq_ent, phase2_cb, de);
 
