@@ -196,7 +196,6 @@ struct hevc_d_dec_env {
 	unsigned int chroma_stride;
 	dma_addr_t ref_addrs[16][2];
 	struct hevc_d_q_aux *frame_aux;
-	struct hevc_d_q_aux *col_aux;
 
 	unsigned int frame_slot;
 	unsigned int ref_slots[16];
@@ -1464,7 +1463,6 @@ static void dec_env_delete(struct hevc_d_dec_env *const de)
 	unsigned long lock_flags;
 
 	aux_q_release(ctx, &de->frame_aux);
-	aux_q_release(ctx, &de->col_aux);
 
 	spin_lock_irqsave(&ctx->dec_lock, lock_flags);
 
@@ -1871,24 +1869,6 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		de->frame_aux = aux_q_ref(ctx, s->frame_aux);
 	}
 
-	if (de->dpbno_col != ~0U) {
-		/* Standard requires that the col pic is constant for
-		 * the duration of the pic (text of collocated_ref_idx
-		 * in H265-2 2018 7.4.7.1)
-		 */
-
-		/* Spot the collocated ref in passing */
-		de->col_aux = aux_q_ref(ctx, dpb_q_aux[de->dpbno_col]);
-
-		if (!de->col_aux) {
-			v4l2_warn(&dev->v4l2_dev, "Missing DPB ent for col\n");
-			/* Need to abort if this fails as P2 may
-			 * explode on bad data
-			 */
-			goto fail;
-		}
-	}
-
 	de->state = HEVC_D_DECODE_PHASE1;
 	return 0;
 
@@ -2051,18 +2031,13 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	apb_write(dev, RPI_CURRPOC, de->rpi_currpoc);
 
 	/* collocated reads/writes */
-	apb_write_vc_len(dev, RPI_COLSTRIDE,
-			 de->ctx->colmv_stride);
-	apb_write_vc_len(dev, RPI_MVSTRIDE,
-			 de->ctx->colmv_stride);
+	apb_write_vc_len(dev, RPI_COLSTRIDE, ctx->colmv_stride);
+	apb_write_vc_len(dev, RPI_MVSTRIDE, ctx->colmv_stride);
 	apb_write_vc_addr(dev, RPI_MVBASE,
 			  !de->frame_aux ? 0 : de->frame_aux->col.addr);
 
 	if (de->dpbno_col == ~0U) {
 		apb_write_vc_addr(dev, RPI_COLBASE, 0);
-		if (de->col_aux) {
-			v4l2_err(&dev->v4l2_dev, "Col aux 0/~0!\n");
-		}
 	}
 	else {
 		unsigned int n = de->ref_slots[de->dpbno_col];
@@ -2074,8 +2049,6 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 		}
 		apb_write(dev, RPI_COLBASE, ref->colbase);
 	}
-//	apb_write_vc_addr(dev, RPI_COLBASE,
-//			  !de->col_aux ? 0 : de->col_aux->col.addr);
 
 	hevc_d_hw_irq_active2_irq(dev, &de->irq_ent, phase2_cb, de);
 
