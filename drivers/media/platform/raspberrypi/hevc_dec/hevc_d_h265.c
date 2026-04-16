@@ -194,8 +194,7 @@ struct hevc_d_dec_env {
 	unsigned int luma_stride;
 	dma_addr_t frame_chroma_addr;
 	unsigned int chroma_stride;
-	dma_addr_t ref_addrs[16][2];
-	struct hevc_d_q_aux *frame_aux;
+	u32 mvbase;
 
 	unsigned int frame_slot;
 	unsigned int ref_slots[16];
@@ -1462,8 +1461,6 @@ static void dec_env_delete(struct hevc_d_dec_env *const de)
 	struct hevc_d_ctx * const ctx = de->ctx;
 	unsigned long lock_flags;
 
-	aux_q_release(ctx, &de->frame_aux);
-
 	spin_lock_irqsave(&ctx->dec_lock, lock_flags);
 
 	de->state = HEVC_D_DECODE_END;
@@ -1642,7 +1639,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	de->chroma_stride = de->luma_stride / 2;
 	de->frame_chroma_addr =
 		vb2_dma_contig_plane_dma_addr(&run->dst->vb2_buf, 1);
-	de->frame_aux = NULL;
+	de->mvbase = 0;
 	de->frame_slot = run->dst->vb2_buf.index;
 
 	if (s->sps.bit_depth_luma_minus8 == 0) {
@@ -1678,8 +1675,6 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	 * somehow then we still have a valid address entry
 	 */
 	for (i = 0; i != 16; ++i) {
-		de->ref_addrs[i][0] = de->frame_luma_addr;
-		de->ref_addrs[i][1] = de->frame_chroma_addr;
 		de->ref_slots[i] = ~0U;
 	}
 
@@ -1841,10 +1836,6 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 					  buffer_index);
 		}
 
-		de->ref_addrs[i][0] =
-			vb2_dma_contig_plane_dma_addr(buf, 0);
-		de->ref_addrs[i][1] =
-			vb2_dma_contig_plane_dma_addr(buf, 1);
 		de->ref_slots[i] = buf->index;
 	}
 
@@ -1866,7 +1857,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 			goto fail;
 		}
 
-		de->frame_aux = aux_q_ref(ctx, s->frame_aux);
+		de->mvbase = VC_ADDR(s->frame_aux->col.addr);
 	}
 
 	de->state = HEVC_D_DECODE_PHASE1;
@@ -1915,9 +1906,6 @@ static void phase2_done(struct hevc_d_dev *const dev,
 			struct hevc_d_dec_env *const de,
 			enum vb2_buffer_state state)
 {
-	if (de->frame_aux)
-		de->frame_aux->good = (state == VB2_BUF_STATE_DONE);
-
 	v4l2_m2m_buf_done(de->frame_buf, state);
 	de->frame_buf = NULL;
 
@@ -1987,7 +1975,7 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 
 	slot->refybase = VC_ADDR(de->frame_luma_addr);
 	slot->refcbase = VC_ADDR(de->frame_chroma_addr);
-	slot->colbase = !de->frame_aux ? 0 : VC_ADDR(de->frame_aux->col.addr);
+	slot->colbase = de->mvbase;
 	slot->poc = de->rpi_currpoc;
 
 	apb_write_vc_addr(dev, RPI_PURBASE, de->pu_base_vc);
@@ -2033,11 +2021,10 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	/* collocated reads/writes */
 	apb_write_vc_len(dev, RPI_COLSTRIDE, ctx->colmv_stride);
 	apb_write_vc_len(dev, RPI_MVSTRIDE, ctx->colmv_stride);
-	apb_write_vc_addr(dev, RPI_MVBASE,
-			  !de->frame_aux ? 0 : de->frame_aux->col.addr);
+	apb_write(dev, RPI_MVBASE, de->mvbase);
 
 	if (de->dpbno_col == ~0U) {
-		apb_write_vc_addr(dev, RPI_COLBASE, 0);
+		apb_write(dev, RPI_COLBASE, 0);
 	}
 	else {
 		unsigned int n = de->ref_slots[de->dpbno_col];
