@@ -1955,32 +1955,6 @@ static void phase2_cb(struct hevc_d_dev *const dev, void *v)
 	phase2_done(dev, v, VB2_BUF_STATE_DONE);
 }
 
-static const struct hevc_d_slot *find_slot(struct hevc_d_dec_env *const de,
-				    const struct hevc_d_ctx *ctx,
-				    unsigned int n)
-{
-	const struct hevc_d_slot *slot = ctx->slots + n;
-	u32 poc;
-	u32 pocdiff = 0xffffffff;
-	unsigned int i;
-
-	if (slot->refybase)
-		return slot;
-
-	poc = slot->poc;
-
-	slot = NULL;
-	for (i = 0; i != 16; ++i) {
-		const struct hevc_d_slot *t = ctx->slots + i;
-		u32 d = abs((s32)(poc - t->poc));
-		if (t->refybase && d < pocdiff) {
-			slot = t;
-			pocdiff = d;
-		}
-	}
-	return slot;
-}
-
 static void phase2_err_claimed(struct hevc_d_dev *const dev, void *v)
 {
 	struct hevc_d_dec_env *const de = v;
@@ -1995,18 +1969,41 @@ static void phase2_err_claimed(struct hevc_d_dev *const dev, void *v)
 	phase2_done(dev, de, VB2_BUF_STATE_ERROR);
 }
 
+static const struct hevc_d_slot *find_slot(struct hevc_d_dec_env *const de,
+					   const struct hevc_d_ctx *ctx,
+					   unsigned int n)
+{
+	const struct hevc_d_slot *slot = ctx->slots + n;
+	u32 poc;
+	u32 pocdiff = 0xffffffff;
+	unsigned int i;
+
+	if (likely(slot->refybase))
+		return slot;
+
+	poc = slot->poc;
+
+	slot = NULL;
+	for (i = 0; i != 16; ++i) {
+		n = de->ref_slots[i];
+		if (n != ~0U) {
+			const struct hevc_d_slot *t = ctx->slots + n;
+			u32 d = abs((s32)(poc - t->poc));
+			if (t->refybase && d < pocdiff) {
+				slot = t;
+				pocdiff = d;
+			}
+		}
+	}
+	return slot;
+}
+
 static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 {
 	struct hevc_d_dec_env *const de = v;
 	struct hevc_d_ctx *const ctx = de->ctx;
 	struct hevc_d_slot *const slot = ctx->slots + de->frame_slot;
 	unsigned int i;
-
-	/* Must give up if col aux is broken */
-	if (de->col_aux && !de->col_aux->good) {
-		phase2_done(dev, de, VB2_BUF_STATE_ERROR);
-		return;
-	}
 
 	slot->refybase = VC_ADDR(de->frame_luma_addr);
 	slot->refcbase = VC_ADDR(de->frame_chroma_addr);
