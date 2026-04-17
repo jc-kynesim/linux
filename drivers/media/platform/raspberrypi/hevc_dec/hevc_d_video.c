@@ -69,7 +69,7 @@ void hevc_d_prepare_src_format(struct v4l2_pix_format_mplane *pix_fmt)
 		height = clamp(height, HEVC_D_MIN_HEIGHT, HEVC_D_MAX_HEIGHT);
 
 	/* If unspecified or way too big - pick max for size */
-	if (sizeimage || sizeimage > SZ_32M)
+	if (!sizeimage || sizeimage > SZ_32M)
 		sizeimage = bit_buf_size(width, height, 2);
 
 	/* Set a minimum */
