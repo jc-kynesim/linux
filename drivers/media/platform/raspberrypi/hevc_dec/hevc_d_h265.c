@@ -1582,6 +1582,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	int rv;
 	unsigned int ctb_size_y;
 	bool sps_changed = false;
+	unsigned int lkg_slot;
 
 	de = dec_env_new(ctx);
 	if (!de) {
