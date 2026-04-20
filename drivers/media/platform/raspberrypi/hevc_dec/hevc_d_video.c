@@ -435,8 +435,9 @@ static int hevc_d_queue_setup(struct vb2_queue *vq, unsigned int *nbufs,
 			      struct device *alloc_devs[])
 {
 	struct hevc_d_ctx *ctx = vb2_get_drv_priv(vq);
-	struct v4l2_pix_format_mplane *pix_fmt;
-	int expected_nplanes;
+	const struct v4l2_pix_format_mplane *pix_fmt;
+	unsigned int expected_nplanes;
+	unsigned int i;
 
 	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
 		pix_fmt = &ctx->src_fmt;
@@ -447,18 +448,15 @@ static int hevc_d_queue_setup(struct vb2_queue *vq, unsigned int *nbufs,
 	}
 
 	if (*nplanes) {
-		if (*nplanes != expected_nplanes ||
-		    sizes[0] < pix_fmt->plane_fmt[0].sizeimage ||
-		    sizes[1] < pix_fmt->plane_fmt[1].sizeimage)
+		if (*nplanes != expected_nplanes)
 			return -EINVAL;
+		for (i = 0; i != expected_nplanes; ++i)
+			if (sizes[i] < pix_fmt->plane_fmt[i].sizeimage)
+				return -EINVAL;
 	} else {
-		sizes[0] = pix_fmt->plane_fmt[0].sizeimage;
-		if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
-			*nplanes = 1;
-		} else {
-			sizes[1] = pix_fmt->plane_fmt[1].sizeimage;
-			*nplanes = 2;
-		}
+		*nplanes = expected_nplanes;
+		for (i = 0; i != expected_nplanes; ++i)
+			sizes[i] = pix_fmt->plane_fmt[i].sizeimage;
 	}
 
 	return 0;
