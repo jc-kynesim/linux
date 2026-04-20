@@ -134,10 +134,8 @@ struct hevc_d_ctx {
 	struct hevc_d_hwbuf pu_bufs[HEVC_D_P2BUF_COUNT];
 	struct hevc_d_hwbuf coeff_bufs[HEVC_D_P2BUF_COUNT];
 
-	/* Spinlock protecting aux_free */
-	spinlock_t aux_lock;
+	/* Aux structures only used in setup so no locking needed */
 	struct hevc_d_q_aux *aux_free;
-
 	struct hevc_d_q_aux *aux_ents[HEVC_D_AUX_ENT_COUNT];
 
 	struct hevc_d_slot {

@@ -341,10 +341,6 @@ static struct hevc_d_q_aux *aux_q_alloc(struct hevc_d_ctx *const ctx,
 			DMA_ATTR_FORCE_CONTIGUOUS | DMA_ATTR_NO_KERNEL_MAPPING))
 		goto fail;
 
-	/*
-	 * Spinlock not required as called in P0 only and
-	 * aux checks done by _new
-	 */
 	aq->refcount = 1;
 	aq->q_index = q_index;
 	ctx->aux_ents[q_index] = aq;
@@ -359,9 +355,7 @@ static struct hevc_d_q_aux *aux_q_new(struct hevc_d_ctx *const ctx,
 				      const unsigned int q_index)
 {
 	struct hevc_d_q_aux *aq;
-	unsigned long lockflags;
 
-	spin_lock_irqsave(&ctx->aux_lock, lockflags);
 	/*
 	 * If we already have this allocated to a slot then use that
 	 * and assume that it will all work itself out in the pipeline
@@ -379,7 +373,6 @@ static struct hevc_d_q_aux *aux_q_new(struct hevc_d_ctx *const ctx,
 			ctx->aux_ents[q_index] = aq;
 		}
 	}
-	spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
 
 	if (!aq)
 		aq = aux_q_alloc(ctx, q_index);
@@ -390,28 +383,12 @@ static struct hevc_d_q_aux *aux_q_new(struct hevc_d_ctx *const ctx,
 static struct hevc_d_q_aux *aux_q_ref_idx(struct hevc_d_ctx *const ctx,
 					  const int q_index)
 {
-	unsigned long lockflags;
 	struct hevc_d_q_aux *aq;
 
-	spin_lock_irqsave(&ctx->aux_lock, lockflags);
 	aq = ctx->aux_ents[q_index];
 	if (aq)
 		++aq->refcount;
-	spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
 
-	return aq;
-}
-
-static struct hevc_d_q_aux *aux_q_ref(struct hevc_d_ctx *const ctx,
-				      struct hevc_d_q_aux *const aq)
-{
-	unsigned long lockflags;
-
-	if (aq) {
-		spin_lock_irqsave(&ctx->aux_lock, lockflags);
-		++aq->refcount;
-		spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
-	}
 	return aq;
 }
 
@@ -419,14 +396,12 @@ static void aux_q_release(struct hevc_d_ctx *const ctx,
 			  struct hevc_d_q_aux **const paq)
 {
 	struct hevc_d_q_aux *const aq = *paq;
-	unsigned long lockflags;
 
 	if (!aq)
 		return;
 
 	*paq = NULL;
 
-	spin_lock_irqsave(&ctx->aux_lock, lockflags);
 	if (--aq->refcount == 0) {
 		aq->next = ctx->aux_free;
 		ctx->aux_free = aq;
@@ -434,12 +409,10 @@ static void aux_q_release(struct hevc_d_ctx *const ctx,
 		aq->q_index = ~0U;
 		aq->good = false;
 	}
-	spin_unlock_irqrestore(&ctx->aux_lock, lockflags);
 }
 
 static void aux_q_init(struct hevc_d_ctx *const ctx)
 {
-	spin_lock_init(&ctx->aux_lock);
 	ctx->aux_free = NULL;
 }
 
