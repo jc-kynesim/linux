@@ -1465,7 +1465,7 @@ static int dec_env_init(struct hevc_d_ctx *const ctx)
 	ctx->dec_pool = kzalloc(sizeof(*ctx->dec_pool) * HEVC_D_DEC_ENV_COUNT,
 				GFP_KERNEL);
 	if (!ctx->dec_pool)
-		return -1;
+		return -ENOMEM;
 
 	spin_lock_init(&ctx->dec_lock);
 
@@ -1488,7 +1488,7 @@ static int dec_env_init(struct hevc_d_ctx *const ctx)
 
 fail:
 	dec_env_uninit(ctx);
-	return -1;
+	return -ENOMEM;
 }
 
 /*
