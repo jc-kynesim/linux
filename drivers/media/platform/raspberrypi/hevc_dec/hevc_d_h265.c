@@ -1806,6 +1806,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		de->ref_slots[i] = buf->index;
 		if (lkg_slot == de->frame_slot) {
 			unsigned int j;
+
 			for (j = 0; j != i; ++j)
 				de->ref_slots[j] = buf->index;
 		}
@@ -1937,6 +1938,7 @@ static const struct hevc_d_slot *find_slot(struct hevc_d_dec_env *const de,
 		if (n != ~0U) {
 			const struct hevc_d_slot *t = ctx->slots + n;
 			u32 d = abs((s32)(poc - t->poc));
+
 			if (t->refybase && d < pocdiff) {
 				slot = t;
 				pocdiff = d;
@@ -1995,8 +1997,7 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 
 	if (de->dpbno_col == ~0U) {
 		apb_write(dev, RPI_COLBASE, 0);
-	}
-	else {
+	} else {
 		const struct hevc_d_slot *col = find_slot(de, ctx, de->dpbno_col);
 
 		if (col == NULL)

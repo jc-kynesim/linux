@@ -86,7 +86,7 @@ struct hevc_d_hw_irq_ent {
 /* Offset to get from REFYBASEn to REFYBASEn+1 */
 #define RPI_REFREGS_SIZE 16
 
-#define VC_ADDR(x) (u32)((x) >> 6)
+#define VC_ADDR(x) ((u32)((x) >> 6))
 
 /*
  * Write a general register value
