@@ -1916,12 +1916,16 @@ static const struct hevc_d_slot *find_slot(struct hevc_d_dec_env *const de,
 					   const struct hevc_d_ctx *ctx,
 					   unsigned int dpb_no)
 {
-	const struct hevc_d_slot *slot = ctx->slots + de->ref_slots[dpb_no];
+	const struct hevc_d_slot *slot;
 	u32 poc;
 	u32 pocdiff = 0xffffffff;
 	unsigned int i;
 	unsigned int n;
 
+	if (unlikely(dpb_no >= HEVC_D_AUX_ENT_COUNT))
+		return NULL;
+
+	slot = ctx->slots + de->ref_slots[dpb_no];
 	if (likely(slot->refybase))
 		return slot;
 
