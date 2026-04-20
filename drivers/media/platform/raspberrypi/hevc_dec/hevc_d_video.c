@@ -494,12 +494,11 @@ static int hevc_d_buf_prepare(struct vb2_buffer *vb)
 {
 	struct vb2_queue *vq = vb->vb2_queue;
 	struct hevc_d_ctx *ctx = vb2_get_drv_priv(vq);
-	struct v4l2_pix_format_mplane *pix_fmt;
+	struct v4l2_pix_format_mplane *pix_fmt = &ctx->dst_fmt;
 
+	/* If OUTPUT then we don't care about actual buffer size */
 	if (V4L2_TYPE_IS_OUTPUT(vq->type))
-		pix_fmt = &ctx->src_fmt;
-	else
-		pix_fmt = &ctx->dst_fmt;
+		return 0;
 
 	if (vb2_plane_size(vb, 0) < pix_fmt->plane_fmt[0].sizeimage ||
 	    vb2_plane_size(vb, 1) < pix_fmt->plane_fmt[1].sizeimage)
