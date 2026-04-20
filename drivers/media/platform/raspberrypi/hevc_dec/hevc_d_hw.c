@@ -344,7 +344,7 @@ int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
 
 done:
 	mutex_unlock(&dev->clk_mutex);
-	return 0;
+	return rv;
 }
 
 static int hw_setup(struct hevc_d_dev *dev)
