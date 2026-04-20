@@ -392,7 +392,7 @@ int hevc_d_hw_probe(struct hevc_d_dev *dev)
 		return ret;
 
 	irq_dec = platform_get_irq(dev->pdev, 0);
-	if (irq_dec <= 0)
+	if (irq_dec < 0)
 		return irq_dec;
 	ret = devm_request_threaded_irq(dev->dev, irq_dec,
 					hevc_d_irq_irq,
