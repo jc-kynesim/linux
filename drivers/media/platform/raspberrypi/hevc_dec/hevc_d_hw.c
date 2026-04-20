@@ -338,7 +338,7 @@ int hevc_d_hw_start_clock(struct hevc_d_dev *dev)
 	rv = clk_prepare_enable(dev->clock);
 	if (rv) {
 		--dev->clk_refs;
-	        dev_err(dev->dev, "Failed to enable clock\n");
+		dev_err(dev->dev, "Failed to enable clock\n");
 		goto done;
 	}
 	irq_clear_enable(dev);
