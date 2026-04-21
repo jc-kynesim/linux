@@ -381,7 +381,7 @@ static struct hevc_d_q_aux *aux_q_new(struct hevc_d_ctx *const ctx,
 }
 
 static struct hevc_d_q_aux *aux_q_ref_idx(struct hevc_d_ctx *const ctx,
-					  const int q_index)
+					  const unsigned int q_index)
 {
 	struct hevc_d_q_aux *aq;
 
@@ -1702,7 +1702,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		}
 		/* BFNUM (data_len) includes the byte with rbsp_stop_one_bit which is not
 		 * part of slice_segment_data but is all but certain to be in the input
-		 * stream so add that when calulating the value we need, but limit to the
+		 * stream so add that when calculating the value we need, but limit to the
 		 * actual size of the buffer (which may well be what is used to set
 		 * bit_size if the caller isn't being very pedantic).
 		 */
@@ -1793,14 +1793,12 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		}
 
 		if (s->use_aux) {
-			int buffer_index = buf->index;
-
-			dpb_q_aux[i] = aux_q_ref_idx(ctx, buffer_index);
+			dpb_q_aux[i] = aux_q_ref_idx(ctx, buf->index);
 			if (!dpb_q_aux[i])
 				v4l2_warn(&dev->v4l2_dev,
 					  "Missing DPB AUX ent %d, timestamp=%lld, index=%d\n",
 					  i, (long long)dec->dpb[i].timestamp,
-					  buffer_index);
+					  buf->index);
 		}
 
 		de->ref_slots[i] = buf->index;
@@ -1917,32 +1915,22 @@ static const struct hevc_d_slot *find_slot(struct hevc_d_dec_env *const de,
 					   const struct hevc_d_ctx *ctx,
 					   unsigned int dpb_no)
 {
-	const struct hevc_d_slot *slot;
-	u32 poc;
+	const struct hevc_d_slot *slot = ctx->slots + de->ref_slots[dpb_no];
+	const u32 poc = slot->poc;;
 	u32 pocdiff = 0xffffffff;
 	unsigned int i;
-	unsigned int n;
 
-	if (unlikely(dpb_no >= HEVC_D_AUX_ENT_COUNT))
-		return NULL;
-
-	slot = ctx->slots + de->ref_slots[dpb_no];
 	if (likely(slot->refybase))
 		return slot;
 
-	poc = slot->poc;
-
 	slot = NULL;
 	for (i = 0; i != 16; ++i) {
-		n = de->ref_slots[i];
-		if (n != ~0U) {
-			const struct hevc_d_slot *t = ctx->slots + n;
-			u32 d = abs((s32)(poc - t->poc));
+		const struct hevc_d_slot *t = ctx->slots + de->ref_slots[i];
+		u32 d = abs((s32)(poc - t->poc));
 
-			if (t->refybase && d < pocdiff) {
-				slot = t;
-				pocdiff = d;
-			}
+		if (t->refybase && d < pocdiff) {
+			slot = t;
+			pocdiff = d;
 		}
 	}
 	return slot;
@@ -1953,6 +1941,7 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	struct hevc_d_dec_env *const de = v;
 	struct hevc_d_ctx *const ctx = de->ctx;
 	struct hevc_d_slot *const slot = ctx->slots + de->frame_slot;
+	u32 colbase = 0;
 	unsigned int i;
 
 	slot->refybase = VC_ADDR(de->frame_luma_addr);
@@ -1966,8 +1955,8 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	apb_write_vc_len(dev, RPI_COEFFRSTRIDE, de->coeff_stride);
 
 	apb_write_vc_addr(dev, RPI_OUTYBASE, de->frame_luma_addr);
-	apb_write_vc_addr(dev, RPI_OUTCBASE, de->frame_chroma_addr);
 	apb_write_vc_len(dev, RPI_OUTYSTRIDE, de->luma_stride);
+	apb_write_vc_addr(dev, RPI_OUTCBASE, de->frame_chroma_addr);
 	apb_write_vc_len(dev, RPI_OUTCSTRIDE, de->chroma_stride);
 
 	for (i = 0; i < 16; i++) {
@@ -1977,6 +1966,8 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 
 		if (!ref)
 			goto fail;
+		if (i == de->dpbno_col)
+			colbase = ref->colbase;
 
 		apb_write(dev, RPI_REFYBASE0 + roff, ref->refybase);
 		apb_write_vc_len(dev, RPI_REFYSTRIDE0 + roff,
@@ -1991,19 +1982,13 @@ static void phase2_claimed(struct hevc_d_dev *const dev, void *v)
 	apb_write(dev, RPI_CURRPOC, de->rpi_currpoc);
 
 	/* collocated reads/writes */
+	if (!colbase && de->dpbno_col != ~0U)
+		goto fail;
+
 	apb_write_vc_len(dev, RPI_COLSTRIDE, ctx->colmv_stride);
+	apb_write(dev, RPI_COLBASE, colbase);
 	apb_write_vc_len(dev, RPI_MVSTRIDE, ctx->colmv_stride);
 	apb_write(dev, RPI_MVBASE, de->mvbase);
-
-	if (de->dpbno_col == ~0U) {
-		apb_write(dev, RPI_COLBASE, 0);
-	} else {
-		const struct hevc_d_slot *col = find_slot(de, ctx, de->dpbno_col);
-
-		if (col == NULL)
-			goto fail;
-		apb_write(dev, RPI_COLBASE, col->colbase);
-	}
 
 	hevc_d_hw_irq_active2_irq(dev, &de->irq_ent, phase2_cb, de);
 
