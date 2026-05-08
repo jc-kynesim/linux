@@ -436,26 +436,19 @@ static int hevc_d_queue_setup(struct vb2_queue *vq, unsigned int *nbufs,
 {
 	struct hevc_d_ctx *ctx = vb2_get_drv_priv(vq);
 	const struct v4l2_pix_format_mplane *pix_fmt;
-	unsigned int expected_nplanes;
 	unsigned int i;
 
-	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		pix_fmt = &ctx->src_fmt;
-		expected_nplanes = 1;
-	} else {
-		pix_fmt = get_dst_fmt(ctx);
-		expected_nplanes = 2;
-	}
+	pix_fmt = V4L2_TYPE_IS_OUTPUT(vq->type) ? &ctx->src_fmt : get_dst_fmt(ctx);
 
 	if (*nplanes) {
-		if (*nplanes != expected_nplanes)
+		if (*nplanes != pix_fmt->num_planes)
 			return -EINVAL;
-		for (i = 0; i != expected_nplanes; ++i)
+		for (i = 0; i != pix_fmt->num_planes; ++i)
 			if (sizes[i] < pix_fmt->plane_fmt[i].sizeimage)
 				return -EINVAL;
 	} else {
-		*nplanes = expected_nplanes;
-		for (i = 0; i != expected_nplanes; ++i)
+		*nplanes = pix_fmt->num_planes;
+		for (i = 0; i != pix_fmt->num_planes; ++i)
 			sizes[i] = pix_fmt->plane_fmt[i].sizeimage;
 	}
 
