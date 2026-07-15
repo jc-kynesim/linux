@@ -2163,6 +2163,69 @@ static int v4l_overlay(const struct v4l2_ioctl_ops *ops, struct file *file,
 	return ops->vidioc_overlay(file, NULL, *(unsigned int *)arg);
 }
 
+#if defined(CONFIG_MEDIA_CONTROLLER)
+static int v4l_bind_context(const struct v4l2_ioctl_ops *ops,
+			    struct file *file, void *arg)
+{
+	struct video_device *vdev = video_devdata(file);
+	struct media_device_context *mdev_context;
+	struct v4l2_fh *vfh = test_bit(V4L2_FL_USES_V4L2_FH, &vdev->flags) ?
+			      file_to_v4l2_fh(file) : NULL;
+	struct v4l2_context *c = arg;
+	int ret;
+
+	/*
+	 * TODO: do not __set_bit(_IOC_NR(VIDIOC_BIND_CONTEXT), valid_ioctls)
+	 * if V4L2_FL_USES_V4L2_FH isn't set or the driver does not implement
+	 * alloc_context and destroy_context.
+	 */
+	if (!vfh)
+		return -ENOTTY;
+
+	if (!vdev->entity.ops || !vdev->entity.ops->alloc_context ||
+	    !vdev->entity.ops->destroy_context)
+		return -ENOTTY;
+
+	mdev_context = media_device_context_get_from_fd(c->context_fd);
+	if (!mdev_context)
+		return -EINVAL;
+
+	/* Let the driver allocate the per-file handle context. */
+	ret = vdev->entity.ops->alloc_context(&vdev->entity,
+					      (struct media_entity_context **)
+					      &vfh->context);
+	if (ret)
+		goto err_put_mdev_context;
+
+	/*
+	 * Bind the newly created video device context to the media device
+	 * context identified by the file descriptor.
+	 */
+	ret = media_device_bind_context(mdev_context,
+					(struct media_entity_context *)
+					vfh->context);
+	if (ret)
+		goto err_put_context;
+
+	media_device_context_put(mdev_context);
+
+	return 0;
+
+err_put_context:
+	video_device_context_put(vfh->context);
+err_put_mdev_context:
+	media_device_context_put(mdev_context);
+
+	return ret;
+}
+#else
+static int v4l_bind_context(const struct v4l2_ioctl_ops *ops,
+			    struct file *file, void *fh, void *arg)
+{
+	return 0;
+}
+#endif /* CONFIG_MEDIA_CONTROLLER */
+
 static int v4l_reqbufs(const struct v4l2_ioctl_ops *ops, struct file *file,
 		       void *arg)
 {
