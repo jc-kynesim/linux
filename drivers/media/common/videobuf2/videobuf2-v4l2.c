@@ -1016,7 +1016,7 @@ static struct vb2_queue *get_vb2_queue(struct file *file,
 #endif /* CONFIG_MEDIA_CONTROLLER */
 }
 
-* vb2 ioctl helpers */
+/* vb2 ioctl helpers */
 
 int vb2_ioctl_remove_bufs(struct file *file, void *priv,
 			  struct v4l2_remove_buffers *d)
