@@ -3082,6 +3082,30 @@ static bool v4l2_is_known_ioctl(unsigned int cmd)
 	return v4l2_ioctls[_IOC_NR(cmd)].ioctl == cmd;
 }
 
+/*
+ * Resolve the vb2 queue for queue ioctls the same way videobuf2's
+ * get_vb2_queue() does for file operations:
+ * 1) The video context bound to the open file handle
+ * 2) The default context for context-aware drivers if userspace has not bound
+ *    a context to the file handle
+ * 3) From the video device for non-context aware drivers
+ *
+ * The two must agree: vb2 releases and reacquires the queue's lock around
+ * blocking waits, so the lock taken here for queue ioctls has to be the lock
+ * of the queue vb2 will operate on.
+ */
+static struct vb2_queue *v4l2_ioctl_get_vb2_queue(struct video_device *vdev,
+						  struct v4l2_fh *vfh)
+{
+#if defined(CONFIG_MEDIA_CONTROLLER)
+	if (vfh && vfh->context)
+		return &vfh->context->queue;
+	if (vdev->default_context)
+		return &vdev->default_context->queue;
+#endif
+	return vdev->queue;
+}
+
 static struct mutex *v4l2_ioctl_get_lock(struct video_device *vdev,
 					 struct v4l2_fh *vfh, unsigned int cmd,
 					 void *arg)
@@ -3093,9 +3117,12 @@ static struct mutex *v4l2_ioctl_get_lock(struct video_device *vdev,
 		if (vfh->m2m_ctx->q_lock)
 			return vfh->m2m_ctx->q_lock;
 	}
-	if (vdev->queue && vdev->queue->lock &&
-			(v4l2_ioctls[_IOC_NR(cmd)].flags & INFO_FL_QUEUE))
-		return vdev->queue->lock;
+	if (v4l2_ioctls[_IOC_NR(cmd)].flags & INFO_FL_QUEUE) {
+		struct vb2_queue *queue = v4l2_ioctl_get_vb2_queue(vdev, vfh);
+
+		if (queue && queue->lock)
+			return queue->lock;
+	}
 	return vdev->lock;
 }
 
