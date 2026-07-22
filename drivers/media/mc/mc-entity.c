@@ -802,7 +802,10 @@ media_pipeline_validate_context(struct media_device_context *mdev_context,
 	if (WARN_ON(IS_ERR(context)))
 		return -EPIPE;
 
-	media_entity_context_get(context);
+	/*
+	 * media_device_get_entity_context() already returns a held reference;
+	 * store it in the ppad and release it when the pipeline is stopped.
+	 */
 	ppad->context = context;
 
 	return 0;
