@@ -151,6 +151,7 @@ static int subdev_close(struct file *file)
 
 	if (sd->internal_ops && sd->internal_ops->close)
 		sd->internal_ops->close(sd, subdev_fh);
+	v4l2_subdev_context_put(subdev_fh->context);
 	module_put(subdev_fh->owner);
 	v4l2_fh_del(vfh, file);
 	v4l2_fh_exit(vfh);
