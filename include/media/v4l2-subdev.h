@@ -1411,6 +1411,9 @@ bool v4l2_subdev_has_pad_interdep(struct media_entity *entity,
  * The reference count of the returned v4l2 subdevice context is increased.
  * Callers of this function are required to decrease the reference count of
  * the context reference with a call to v4l2_subdev_context_put().
+ *
+ * Return: the v4l2 subdevice context, or NULL if the subdevice has no context
+ * in @mdev_context.
  */
 struct v4l2_subdev_context *
 v4l2_subdev_context_get(struct media_device_context *mdev_context,

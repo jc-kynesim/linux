@@ -807,6 +807,9 @@ struct video_device_context {
  * The reference count of the returned video device context is increased.
  * Callers of this function are required to decrease the reference count of
  * the context reference with a call to video_device_context_put().
+ *
+ * Return: the video device context, or NULL if the video device has no
+ * context in @mdev_context.
  */
 struct video_device_context *
 video_device_context_get(struct media_device_context *mdev_context,

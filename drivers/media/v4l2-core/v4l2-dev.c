@@ -1328,7 +1328,11 @@ video_device_context_get(struct media_device_context *mdev_context,
 	struct media_entity_context *ctx =
 		media_device_get_entity_context(mdev_context, entity);
 
-	if (!ctx)
+	/*
+	 * media_device_get_entity_context() returns ERR_PTR() when the entity
+	 * has no context in this media device context. Callers expect NULL.
+	 */
+	if (IS_ERR_OR_NULL(ctx))
 		return NULL;
 
 	return container_of(ctx, struct video_device_context, base);

@@ -1826,7 +1826,8 @@ EXPORT_SYMBOL_GPL(media_entity_context_get);
 
 void media_entity_context_put(struct media_entity_context *ctx)
 {
-	if (!ctx)
+	/* Tolerate the ERR_PTR() returned by media_entity_context_get() */
+	if (IS_ERR_OR_NULL(ctx))
 		return;
 
 	kref_put(&ctx->refcount, media_entity_release_context);
