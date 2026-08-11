@@ -2048,7 +2048,7 @@ v4l2_subdev_lock_and_get_active_state_from_ctx(struct v4l2_subdev_context *ctx);
 		struct v4l2_subdev *:						\
 			v4l2_subdev_lock_and_get_active_state_from_sd,		\
 		struct v4l2_subdev_context *:					\
-			v4l2_subdev_get_locked_active_state_from_ctx)		\
+			v4l2_subdev_lock_and_get_active_state_from_ctx)		\
 	(sdctx)
 
 /**
