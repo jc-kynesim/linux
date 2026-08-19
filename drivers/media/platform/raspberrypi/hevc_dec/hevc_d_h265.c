@@ -531,7 +531,7 @@ static void write_prob(struct hevc_d_dec_env *const de,
 	p1_apb_write(de, RPI_TRANSFER, PROB_BACKUP);
 }
 
-#define CMDS_WRITE_SCALING_FACTORS NUM_SCALING_FACTORS
+#define CMDS_WRITE_SCALING_FACTORS (NUM_SCALING_FACTORS / 4)
 static void write_scaling_factors(struct hevc_d_dec_env *const de)
 {
 	const u8 *p = (u8 *)de->scaling_factors;
