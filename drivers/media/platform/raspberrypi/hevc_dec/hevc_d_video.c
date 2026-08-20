@@ -199,59 +199,6 @@ static int hevc_d_enum_fmt_vid_out(struct file *file, void *priv,
 	return -EINVAL;
 }
 
-static int hevc_d_hevc_validate_sps(const struct v4l2_ctrl_hevc_sps * const sps)
-{
-	const unsigned int ctb_log2_size_y =
-			sps->log2_min_luma_coding_block_size_minus3 + 3 +
-			sps->log2_diff_max_min_luma_coding_block_size;
-	const unsigned int min_tb_log2_size_y =
-			sps->log2_min_luma_transform_block_size_minus2 + 2;
-	const unsigned int max_tb_log2_size_y = min_tb_log2_size_y +
-			sps->log2_diff_max_min_luma_transform_block_size;
-
-	/* Local limitations */
-	if (sps->pic_width_in_luma_samples < 32 ||
-	    sps->pic_width_in_luma_samples > 4096)
-		return 0;
-	if (sps->pic_height_in_luma_samples < 32 ||
-	    sps->pic_height_in_luma_samples > 4096)
-		return 0;
-	if (!(sps->bit_depth_luma_minus8 == 0 ||
-	      sps->bit_depth_luma_minus8 == 2))
-		return 0;
-	if (sps->bit_depth_luma_minus8 != sps->bit_depth_chroma_minus8)
-		return 0;
-	if (sps->chroma_format_idc != 1)
-		return 0;
-
-	/*  Limits from H.265 7.4.3.2.1 */
-	if (sps->log2_max_pic_order_cnt_lsb_minus4 > 12)
-		return 0;
-	if (sps->sps_max_dec_pic_buffering_minus1 > 15)
-		return 0;
-	if (sps->sps_max_num_reorder_pics >
-				sps->sps_max_dec_pic_buffering_minus1)
-		return 0;
-	if (ctb_log2_size_y > 6)
-		return 0;
-	if (max_tb_log2_size_y > 5)
-		return 0;
-	if (max_tb_log2_size_y > ctb_log2_size_y)
-		return 0;
-	if (sps->max_transform_hierarchy_depth_inter >
-				(ctb_log2_size_y - min_tb_log2_size_y))
-		return 0;
-	if (sps->max_transform_hierarchy_depth_intra >
-				(ctb_log2_size_y - min_tb_log2_size_y))
-		return 0;
-	/* Check pcm stuff */
-	if (sps->num_short_term_ref_pic_sets > 64)
-		return 0;
-	if (sps->num_long_term_ref_pics_sps > 32)
-		return 0;
-	return 1;
-}
-
 static u32 pixelformat_from_sps(const struct v4l2_ctrl_hevc_sps * const sps,
 				const int index)
 {
@@ -263,7 +210,7 @@ static u32 pixelformat_from_sps(const struct v4l2_ctrl_hevc_sps * const sps,
 	};
 	u32 pf = 0;
 
-	if (!is_sps_set(sps) || !hevc_d_hevc_validate_sps(sps)) {
+	if (!is_sps_set(sps)) {
 		/* Treat this as an error? For now return both */
 
 		if (index < ARRAY_SIZE(all_formats))
