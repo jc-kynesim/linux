@@ -493,10 +493,10 @@ static void write_prob(struct hevc_d_dec_env *const de,
 		       const struct hevc_d_dec_state *const s)
 {
 	const unsigned int init_type =
-		((s->sh->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_CABAC_INIT) != 0 &&
-		 s->sh->slice_type != HEVC_SLICE_I) ?
-			s->sh->slice_type + 1 :
-			2 - s->sh->slice_type;
+		s->sh->slice_type == HEVC_SLICE_I ? 0 :
+		(s->sh->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_CABAC_INIT) ?
+		 (s->sh->slice_type == HEVC_SLICE_P ? 2 : 1) :
+		 (s->sh->slice_type == HEVC_SLICE_P ? 1 : 2);
 	const int q = clamp((int)s->slice_qp, 0, 51);
 	const u8 *p = prob_init[init_type];
 	u8 dst[RPI_PROB_ARRAY_SIZE];
@@ -1337,6 +1337,7 @@ static void fill_rs_to_ts(struct hevc_d_dec_state *const s)
 static int updated_ps(struct hevc_d_dec_state *const s)
 {
 	unsigned int i;
+	int rv = -ENOMEM;
 
 	free_ps_info(s);
 
@@ -1380,16 +1381,27 @@ static int updated_ps(struct hevc_d_dec_state *const s)
 	if (!s->row_bd)
 		goto fail;
 
+	/* Can't check col widths/row heights in PPS validation so do here */
 	s->col_bd[0] = 0;
-	for (i = 1; i < s->tile_width; i++)
+	for (i = 1; i < s->tile_width; i++) {
 		s->col_bd[i] = s->col_bd[i - 1] +
 			s->pps.column_width_minus1[i - 1] + 1;
+		if (s->col_bd[i] >= s->ctb_width) {
+			rv = -EINVAL;
+			goto fail;
+		}
+	}
 	s->col_bd[s->tile_width] = s->ctb_width;
 
 	s->row_bd[0] = 0;
-	for (i = 1; i < s->tile_height; i++)
+	for (i = 1; i < s->tile_height; i++) {
 		s->row_bd[i] = s->row_bd[i - 1] +
 			s->pps.row_height_minus1[i - 1] + 1;
+		if (s->row_bd[i] >= s->ctb_height) {
+			rv = -EINVAL;
+			goto fail;
+		}
+	}
 	s->row_bd[s->tile_height] = s->ctb_height;
 
 	fill_rs_to_ts(s);
@@ -1399,7 +1411,7 @@ fail:
 	free_ps_info(s);
 	/* Set invalid to force reload */
 	s->sps.pic_width_in_luma_samples = 0;
-	return -ENOMEM;
+	return rv;
 }
 
 static void setup_colmv(struct hevc_d_ctx *const ctx, struct hevc_d_run *run,
@@ -1666,13 +1678,6 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 
 	s->slice_idx = 0;
 
-	if (sh0->slice_segment_addr != 0) {
-		v4l2_warn(&dev->v4l2_dev,
-			  "New frame but segment_addr=%d\n",
-			  sh0->slice_segment_addr);
-		goto fail;
-	}
-
 	/* Either map src buffer or use directly */
 	s->src_addr = 0;
 
@@ -1692,6 +1697,17 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		unsigned int j;
 
 		s->sh = sh;
+
+		/*
+		 * slice_segment_addr indexes ctb_addr_rs_to_ts so must be
+		 * checked before use.
+		 */
+		if (sh->slice_segment_addr >= s->ctb_size) {
+			v4l2_warn(&dev->v4l2_dev,
+				  "Slice %u: segment addr %u >= pic size in CTBs %u\n",
+				  i, sh->slice_segment_addr, s->ctb_size);
+			goto fail;
+		}
 
 		if (sh->data_byte_offset + byte_size > run->src->planes[0].bytesused) {
 			v4l2_warn(&dev->v4l2_dev,
@@ -2310,6 +2326,13 @@ static int try_ctrl_sps(struct v4l2_ctrl *ctrl)
 	const struct v4l2_ctrl_hevc_sps *const sps = ctrl->p_new.p_hevc_sps;
 	struct hevc_d_ctx *const ctx = ctrl->priv;
 	struct hevc_d_dev *const dev = ctx->dev;
+	const unsigned int ctb_log2_size_y =
+			sps->log2_min_luma_coding_block_size_minus3 + 3 +
+			sps->log2_diff_max_min_luma_coding_block_size;
+	const unsigned int min_tb_log2_size_y =
+			sps->log2_min_luma_transform_block_size_minus2 + 2;
+	const unsigned int max_tb_log2_size_y = min_tb_log2_size_y +
+			sps->log2_diff_max_min_luma_transform_block_size;
 
 	if (sps->chroma_format_idc != 1) {
 		v4l2_warn(&dev->v4l2_dev,
@@ -2345,6 +2368,31 @@ static int try_ctrl_sps(struct v4l2_ctrl *ctrl)
 		return -EINVAL;
 	}
 
+	/*  Limits from H.265 7.4.3.2.1 */
+	if (sps->log2_max_pic_order_cnt_lsb_minus4 > 12)
+		return -EINVAL;
+	if (sps->sps_max_dec_pic_buffering_minus1 > 15)
+		return -EINVAL;
+	if (sps->sps_max_num_reorder_pics >
+				sps->sps_max_dec_pic_buffering_minus1)
+		return -EINVAL;
+	if (ctb_log2_size_y > 6)
+		return -EINVAL;
+	if (max_tb_log2_size_y > 5)
+		return -EINVAL;
+	if (max_tb_log2_size_y > ctb_log2_size_y)
+		return -EINVAL;
+	if (sps->max_transform_hierarchy_depth_inter >
+				(ctb_log2_size_y - min_tb_log2_size_y))
+		return -EINVAL;
+	if (sps->max_transform_hierarchy_depth_intra >
+				(ctb_log2_size_y - min_tb_log2_size_y))
+		return -EINVAL;
+	if (sps->num_short_term_ref_pic_sets > 64)
+		return -EINVAL;
+	if (sps->num_long_term_ref_pics_sps > 32)
+		return -EINVAL;
+
 	return 0;
 }
 
@@ -2360,11 +2408,19 @@ static int try_ctrl_pps(struct v4l2_ctrl *ctrl)
 
 	if ((pps->flags &
 	     V4L2_HEVC_PPS_FLAG_ENTROPY_CODING_SYNC_ENABLED) &&
-	    (pps->flags &
-	     V4L2_HEVC_PPS_FLAG_TILES_ENABLED) &&
+	    (pps->flags & V4L2_HEVC_PPS_FLAG_TILES_ENABLED) &&
 	    (pps->num_tile_columns_minus1 || pps->num_tile_rows_minus1)) {
 		v4l2_warn(&dev->v4l2_dev,
 			  "WPP + Tiles not supported\n");
+		return -EINVAL;
+	}
+
+	if ((pps->flags & V4L2_HEVC_PPS_FLAG_TILES_ENABLED) &&
+		(pps->num_tile_columns_minus1 >
+			ARRAY_SIZE(pps->column_width_minus1) ||
+		 pps->num_tile_rows_minus1 >
+			ARRAY_SIZE(pps->row_height_minus1))) {
+		v4l2_warn(&dev->v4l2_dev, "Tiles cols/rows too big\n");
 		return -EINVAL;
 	}
 
@@ -2373,6 +2429,68 @@ static int try_ctrl_pps(struct v4l2_ctrl *ctrl)
 
 const struct v4l2_ctrl_ops hevc_d_hevc_pps_ctrl_ops = {
 	.try_ctrl = try_ctrl_pps,
+};
+
+/* Check the DPB indices that decode will use are all in range */
+static bool ref_idx_valid(const __u8 *const ref_idx, const unsigned int n)
+{
+	unsigned int i;
+
+	for (i = 0; i != n; ++i)
+		if (ref_idx[i] >= V4L2_HEVC_DPB_ENTRIES_NUM_MAX)
+			return false;
+
+	return true;
+}
+
+static int try_ctrl_slice_params(struct v4l2_ctrl *ctrl)
+{
+	struct hevc_d_ctx *const ctx = ctrl->priv;
+	struct hevc_d_dev *const dev = ctx->dev;
+	const struct v4l2_ctrl_hevc_slice_params *sh = ctrl->p_new.p_hevc_slice_params;
+	unsigned int i;
+
+	/*
+	 * Cannot know the size from the slice header alone so can only test
+	 * slice_segment_address for slice 0
+	 */
+	if (sh->slice_segment_addr != 0) {
+		v4l2_warn(&dev->v4l2_dev, "New frame but segment_addr=%d\n",
+			  sh->slice_segment_addr);
+		return -EINVAL;
+	}
+
+	for (i = 0; i != ctrl->new_elems; ++i, ++sh) {
+		if (sh->slice_type != HEVC_SLICE_B &&
+		    sh->slice_type != HEVC_SLICE_P &&
+		    sh->slice_type != HEVC_SLICE_I) {
+			v4l2_warn(&dev->v4l2_dev,
+				  "Slice %u: bad slice type %u\n",
+				  i, sh->slice_type);
+			return -EINVAL;
+		}
+
+		/*
+		 * The active ref counts are checked by the V4L2 core but the
+		 * DPB indices themselves are not. I-slices use neither.
+		 */
+		if (sh->slice_type != HEVC_SLICE_I &&
+		    (!ref_idx_valid(sh->ref_idx_l0,
+				    sh->num_ref_idx_l0_active_minus1 + 1) ||
+		     (sh->slice_type == HEVC_SLICE_B &&
+		      !ref_idx_valid(sh->ref_idx_l1,
+				     sh->num_ref_idx_l1_active_minus1 + 1)))) {
+			v4l2_warn(&dev->v4l2_dev,
+				  "Slice %u: DPB index out of range\n", i);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+const struct v4l2_ctrl_ops hevc_d_hevc_slice_params_ctrl_ops = {
+	.try_ctrl = try_ctrl_slice_params,
 };
 
 void hevc_d_device_run(void *priv)

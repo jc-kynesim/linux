@@ -52,6 +52,7 @@ static const struct v4l2_ctrl_config hevc_d_ctrls[] = {
 	}, {
 		.name	= "Slice param array",
 		.id	= V4L2_CID_STATELESS_HEVC_SLICE_PARAMS,
+		.ops	= &hevc_d_hevc_slice_params_ctrl_ops,
 		.type	= V4L2_CTRL_TYPE_HEVC_SLICE_PARAMS,
 		.flags	= V4L2_CTRL_FLAG_DYNAMIC_ARRAY,
 		.dims	= { 600 },
