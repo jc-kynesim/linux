@@ -11,7 +11,6 @@
  * Copyright (C) 2018 Bootlin
  */
 
-//#include <linux/delay.h>
 #include <linux/math.h>
 #include <linux/types.h>
 
@@ -1542,7 +1541,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 	struct hevc_d_q_aux *dpb_q_aux[V4L2_HEVC_DPB_ENTRIES_NUM_MAX];
 	struct hevc_d_dec_state *const s = ctx->state;
 	struct vb2_queue *vq;
-	struct hevc_d_dec_env *de = ctx->dec0;
+	struct hevc_d_dec_env *de;
 	unsigned int prev_rs;
 	unsigned int i;
 	int rv;
