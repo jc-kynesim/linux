@@ -764,14 +764,14 @@ static void pre_slice_decode(struct hevc_d_dec_env *const de,
 		cmd_slice |= no_backward_pred_flag << 10;
 		msg_slice(de, cmd_slice);
 
-		if (s->slice_temporal_mvp) {
-			const u8 *const rpl = collocated_from_l0_flag ?
-						sh->ref_idx_l0 : sh->ref_idx_l1;
-			if (sh->collocated_ref_idx >= dec->num_active_dpb_entries)
-				de->dpbno_col = rpl[0];
-			else
-				de->dpbno_col = rpl[sh->collocated_ref_idx];
-		}
+		if (s->slice_temporal_mvp)
+			de->dpbno_col = collocated_from_l0_flag ?
+				(sh->collocated_ref_idx < s->nb_refs[L0] ?
+				 sh->ref_idx_l0[sh->collocated_ref_idx] :
+				 sh->ref_idx_l0[0]) :
+				(sh->collocated_ref_idx < s->nb_refs[L1] ?
+				 sh->ref_idx_l1[sh->collocated_ref_idx] :
+				 sh->ref_idx_l1[0]);
 
 		/* Write reference picture descriptions */
 		weighted_pred_flag =
