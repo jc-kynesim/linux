@@ -132,7 +132,7 @@ static size_t next_size(const size_t x)
 #define PROB_BACKUP ((20 << 12) + (20 << 6) + (0 << 0))
 #define PROB_RELOAD ((20 << 12) + (20 << 0) + (0 << 6))
 
-#define HEVC_MAX_REFS V4L2_HEVC_DPB_ENTRIES_NUM_MAX
+#define NUM_REF_IDX_ACTIVE_MAX 15
 
 struct hevc_d_q_aux {
 	unsigned int refcount;
@@ -181,7 +181,7 @@ struct hevc_d_dec_env {
 	unsigned int entry_ctb_y;
 	unsigned int entry_tile_x;
 	unsigned int entry_tile_y;
-	unsigned int entry_qp;
+	int entry_qp;
 	u32 entry_slice;
 
 	u32 rpi_config2;
@@ -204,7 +204,7 @@ struct hevc_d_dec_env {
 	u32 pu_stride;
 	u32 coeff_stride;
 
-#define SLICE_MSGS_MAX (2 * HEVC_MAX_REFS * 8 + 3)
+#define SLICE_MSGS_MAX (2 * NUM_REF_IDX_ACTIVE_MAX * 8 + 3)
 	u16 slice_msgs[SLICE_MSGS_MAX];
 	u8 scaling_factors[NUM_SCALING_FACTORS];
 
@@ -235,7 +235,7 @@ struct hevc_d_dec_state {
 	int *ctb_addr_ts_to_rs;
 
 	/* Aux storage for DPB */
-	struct hevc_d_q_aux *ref_aux[HEVC_MAX_REFS];
+	struct hevc_d_q_aux *ref_aux[V4L2_HEVC_DPB_ENTRIES_NUM_MAX];
 	struct hevc_d_q_aux *frame_aux;
 
 	/* Slice vars */
@@ -250,7 +250,7 @@ struct hevc_d_dec_state {
 	const struct v4l2_ctrl_hevc_slice_params *sh;
 	const struct v4l2_ctrl_hevc_decode_params *dec;
 	unsigned int nb_refs[2];
-	unsigned int slice_qp;
+	int slice_qp;
 	unsigned int max_num_merge_cand; /* 0 if I-slice */
 	bool dependent_slice_segment_flag;
 	u32 data_len;
@@ -497,7 +497,7 @@ static void write_prob(struct hevc_d_dec_env *const de,
 		(s->sh->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_CABAC_INIT) ?
 		 (s->sh->slice_type == HEVC_SLICE_P ? 2 : 1) :
 		 (s->sh->slice_type == HEVC_SLICE_P ? 1 : 2);
-	const int q = clamp((int)s->slice_qp, 0, 51);
+	const int q = clamp(s->slice_qp, 0, 51);
 	const u8 *p = prob_init[init_type];
 	u8 dst[RPI_PROB_ARRAY_SIZE];
 	unsigned int i;
@@ -700,6 +700,32 @@ static int has_backward(const struct v4l2_hevc_dpb_entry *const dpb,
 	return 1;
 }
 
+static void pre_slice_weights(struct hevc_d_dec_env *const de,
+			      const struct v4l2_hevc_pred_weight_table *const w,
+			      const __s8 delta_luma_weight[V4L2_HEVC_DPB_ENTRIES_NUM_MAX],
+			      const __s8 luma_offset[V4L2_HEVC_DPB_ENTRIES_NUM_MAX],
+			      const __s8 delta_chroma_weight[V4L2_HEVC_DPB_ENTRIES_NUM_MAX][2],
+			      const __s8 chroma_offset[V4L2_HEVC_DPB_ENTRIES_NUM_MAX][2],
+			      const unsigned int idx)
+{
+	const int luma_log2_weight_denom = min(w->luma_log2_weight_denom, 7);
+	const int chroma_log2_weight_denom = clamp(luma_log2_weight_denom +
+						   w->delta_chroma_log2_weight_denom,
+						   0, 7);
+	const int luma_weight_denom = (1 << luma_log2_weight_denom);
+	const int chroma_weight_denom = (1 << chroma_log2_weight_denom);
+
+	msg_slice(de, luma_log2_weight_denom |
+			(((delta_luma_weight[idx] + luma_weight_denom) & 0x1ff) << 3));
+	msg_slice(de, luma_offset[idx] & 0xff);
+	msg_slice(de, chroma_log2_weight_denom |
+			(((delta_chroma_weight[idx][0] + chroma_weight_denom) & 0x1ff) << 3));
+	msg_slice(de, chroma_offset[idx][0] & 0xff);
+	msg_slice(de, chroma_log2_weight_denom |
+			(((delta_chroma_weight[idx][1] + chroma_weight_denom) & 0x1ff) << 3));
+	msg_slice(de, chroma_offset[idx][1] & 0xff);
+}
+
 static void pre_slice_decode(struct hevc_d_dec_env *const de,
 			     const struct hevc_d_dec_state *const s)
 {
@@ -764,38 +790,14 @@ static void pre_slice_decode(struct hevc_d_dec_env *const de,
 				  (weighted_pred_flag ? (3 << 5) : 0));
 			msg_slice(de, dec->dpb[dpb_no].pic_order_cnt_val & 0xffff);
 
-			if (weighted_pred_flag) {
-				const struct v4l2_hevc_pred_weight_table
-					*const w = &sh->pred_weight_table;
-				const int luma_weight_denom =
-					(1 << w->luma_log2_weight_denom);
-				const unsigned int chroma_log2_weight_denom =
-					(w->luma_log2_weight_denom +
-					 w->delta_chroma_log2_weight_denom);
-				const int chroma_weight_denom =
-					(1 << chroma_log2_weight_denom);
-
-				msg_slice(de,
-					  w->luma_log2_weight_denom |
-					  (((w->delta_luma_weight_l0[idx] +
-					     luma_weight_denom) & 0x1ff)
-						 << 3));
-				msg_slice(de, w->luma_offset_l0[idx] & 0xff);
-				msg_slice(de,
-					  chroma_log2_weight_denom |
-					  (((w->delta_chroma_weight_l0[idx][0] +
-					     chroma_weight_denom) & 0x1ff)
-						   << 3));
-				msg_slice(de,
-					  w->chroma_offset_l0[idx][0] & 0xff);
-				msg_slice(de,
-					  chroma_log2_weight_denom |
-					  (((w->delta_chroma_weight_l0[idx][1] +
-					     chroma_weight_denom) & 0x1ff)
-						   << 3));
-				msg_slice(de,
-					  w->chroma_offset_l0[idx][1] & 0xff);
-			}
+			if (weighted_pred_flag)
+				pre_slice_weights(de,
+						  &sh->pred_weight_table,
+						  sh->pred_weight_table.delta_luma_weight_l0,
+						  sh->pred_weight_table.luma_offset_l0,
+						  sh->pred_weight_table.delta_chroma_weight_l0,
+						  sh->pred_weight_table.chroma_offset_l0,
+						  idx);
 		}
 
 		for (idx = 0; idx < s->nb_refs[L1]; ++idx) {
@@ -808,37 +810,15 @@ static void pre_slice_decode(struct hevc_d_dec_env *const de,
 						 (1 << 4) : 0) |
 					(weighted_pred_flag ? (3 << 5) : 0));
 			msg_slice(de, dec->dpb[dpb_no].pic_order_cnt_val & 0xffff);
-			if (weighted_pred_flag) {
-				const struct v4l2_hevc_pred_weight_table
-					*const w = &sh->pred_weight_table;
-				const int luma_weight_denom =
-					(1 << w->luma_log2_weight_denom);
-				const unsigned int chroma_log2_weight_denom =
-					(w->luma_log2_weight_denom +
-					 w->delta_chroma_log2_weight_denom);
-				const int chroma_weight_denom =
-					(1 << chroma_log2_weight_denom);
 
-				msg_slice(de,
-					  w->luma_log2_weight_denom |
-					  (((w->delta_luma_weight_l1[idx] +
-					     luma_weight_denom) & 0x1ff) << 3));
-				msg_slice(de, w->luma_offset_l1[idx] & 0xff);
-				msg_slice(de,
-					  chroma_log2_weight_denom |
-					  (((w->delta_chroma_weight_l1[idx][0] +
-					     chroma_weight_denom) & 0x1ff)
-							<< 3));
-				msg_slice(de,
-					  w->chroma_offset_l1[idx][0] & 0xff);
-				msg_slice(de,
-					  chroma_log2_weight_denom |
-					  (((w->delta_chroma_weight_l1[idx][1] +
-					     chroma_weight_denom) & 0x1ff)
-						   << 3));
-				msg_slice(de,
-					  w->chroma_offset_l1[idx][1] & 0xff);
-			}
+			if (weighted_pred_flag)
+				pre_slice_weights(de,
+						  &sh->pred_weight_table,
+						  sh->pred_weight_table.delta_luma_weight_l1,
+						  sh->pred_weight_table.luma_offset_l1,
+						  sh->pred_weight_table.delta_chroma_weight_l1,
+						  sh->pred_weight_table.chroma_offset_l1,
+						  idx);
 		}
 	} else {
 		msg_slice(de, cmd_slice);
@@ -898,7 +878,7 @@ static void new_entry_point(struct hevc_d_dec_env *const de,
 			    const unsigned int tile_y,
 			    const unsigned int ctb_col,
 			    const unsigned int ctb_row,
-			    const unsigned int slice_qp,
+			    const int slice_qp,
 			    const u32 slice_const)
 {
 	const unsigned int endx = s->col_bd[tile_x + 1] - 1;
@@ -915,10 +895,11 @@ static void new_entry_point(struct hevc_d_dec_env *const de,
 	write_slice(de, s, slice_const, endx, endy);
 
 	if (reset_qp_y) {
-		unsigned int sps_qp_bd_offset =
+		int sps_qp_bd_offset =
 			6 * s->sps.bit_depth_luma_minus8;
 
-		p1_apb_write(de, RPI_QP, sps_qp_bd_offset + slice_qp);
+		p1_apb_write(de, RPI_QP, clamp(sps_qp_bd_offset + slice_qp,
+					       0, sps_qp_bd_offset + 51));
 	}
 
 	p1_apb_write(de, RPI_MODE,
@@ -1344,6 +1325,8 @@ static int updated_ps(struct hevc_d_dec_state *const s)
 	/* Inferred parameters */
 	s->log2_ctb_size = s->sps.log2_min_luma_coding_block_size_minus3 + 3 +
 			   s->sps.log2_diff_max_min_luma_coding_block_size;
+	if (s->log2_ctb_size < s->pps.diff_cu_qp_delta_depth)
+		goto fail_inval;
 
 	s->ctb_width = (s->sps.pic_width_in_luma_samples +
 			(1 << s->log2_ctb_size) - 1) >>
@@ -1386,10 +1369,8 @@ static int updated_ps(struct hevc_d_dec_state *const s)
 	for (i = 1; i < s->tile_width; i++) {
 		s->col_bd[i] = s->col_bd[i - 1] +
 			s->pps.column_width_minus1[i - 1] + 1;
-		if (s->col_bd[i] >= s->ctb_width) {
-			rv = -EINVAL;
-			goto fail;
-		}
+		if (s->col_bd[i] >= s->ctb_width)
+			goto fail_inval;
 	}
 	s->col_bd[s->tile_width] = s->ctb_width;
 
@@ -1397,16 +1378,16 @@ static int updated_ps(struct hevc_d_dec_state *const s)
 	for (i = 1; i < s->tile_height; i++) {
 		s->row_bd[i] = s->row_bd[i - 1] +
 			s->pps.row_height_minus1[i - 1] + 1;
-		if (s->row_bd[i] >= s->ctb_height) {
-			rv = -EINVAL;
-			goto fail;
-		}
+		if (s->row_bd[i] >= s->ctb_height)
+			goto fail_inval;
 	}
 	s->row_bd[s->tile_height] = s->ctb_height;
 
 	fill_rs_to_ts(s);
 	return 0;
 
+fail_inval:
+	rv = -EINVAL;
 fail:
 	free_ps_info(s);
 	/* Set invalid to force reload */
@@ -1530,7 +1511,7 @@ static u32 mk_config2(const struct hevc_d_dec_state *const s)
 		c |= BIT(14);
 	if (s->mk_aux)
 		c |= BIT(15); /* Write motion vectors to external memory */
-	c |= (pps->log2_parallel_merge_level_minus2 + 2) << 16;
+	c |= min(s->log2_ctb_size, pps->log2_parallel_merge_level_minus2 + 2) << 16;
 	if (s->slice_temporal_mvp)
 		c |= BIT(19);
 	if (sps->flags & V4L2_HEVC_SPS_FLAG_PCM_LOOP_FILTER_DISABLED)
@@ -2234,7 +2215,7 @@ static void dec_state_delete(struct hevc_d_ctx *const ctx)
 
 	free_ps_info(s);
 
-	for (i = 0; i != HEVC_MAX_REFS; ++i)
+	for (i = 0; i != V4L2_HEVC_DPB_ENTRIES_NUM_MAX; ++i)
 		aux_q_release(ctx, &s->ref_aux[i]);
 	aux_q_release(ctx, &s->frame_aux);
 
@@ -2489,6 +2470,9 @@ static int try_ctrl_pps(struct v4l2_ctrl *ctrl)
 		return -EINVAL;
 	}
 
+	if (pps->log2_parallel_merge_level_minus2 > 4)
+		return -EINVAL;
+
 	return 0;
 }
 
@@ -2497,11 +2481,13 @@ const struct v4l2_ctrl_ops hevc_d_hevc_pps_ctrl_ops = {
 };
 
 /* Check the DPB indices that decode will use are all in range */
-static bool ref_idx_valid(const __u8 *const ref_idx, const unsigned int n)
+static bool ref_idx_valid(const __u8 *const ref_idx, const unsigned int n_minus_1)
 {
 	unsigned int i;
 
-	for (i = 0; i != n; ++i)
+	if (n_minus_1 > NUM_REF_IDX_ACTIVE_MAX - 1)
+		return false;
+	for (i = 0; i <= n_minus_1; ++i)
 		if (ref_idx[i] >= V4L2_HEVC_DPB_ENTRIES_NUM_MAX)
 			return false;
 
@@ -2535,19 +2521,15 @@ static int try_ctrl_slice_params(struct v4l2_ctrl *ctrl)
 			return -EINVAL;
 		}
 
-		/*
-		 * The active ref counts are checked by the V4L2 core but the
-		 * DPB indices themselves are not. I-slices use neither.
-		 */
-		if (sh->slice_type != HEVC_SLICE_I &&
-		    (!ref_idx_valid(sh->ref_idx_l0,
-				    sh->num_ref_idx_l0_active_minus1 + 1) ||
-		     (sh->slice_type == HEVC_SLICE_B &&
-		      !ref_idx_valid(sh->ref_idx_l1,
-				     sh->num_ref_idx_l1_active_minus1 + 1)))) {
-			v4l2_warn(&dev->v4l2_dev,
-				  "Slice %u: DPB index out of range\n", i);
-			return -EINVAL;
+		if (sh->slice_type != HEVC_SLICE_I) {
+			if (!ref_idx_valid(sh->ref_idx_l0, sh->num_ref_idx_l0_active_minus1))
+				return -EINVAL;
+			if (sh->five_minus_max_num_merge_cand > 4)
+				return -EINVAL;
+		}
+		if (sh->slice_type == HEVC_SLICE_B) {
+			if (!ref_idx_valid(sh->ref_idx_l1, sh->num_ref_idx_l1_active_minus1))
+				return -EINVAL;
 		}
 	}
 
