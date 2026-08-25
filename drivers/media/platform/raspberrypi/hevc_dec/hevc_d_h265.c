@@ -2586,12 +2586,7 @@ void hevc_d_device_run(void *priv)
 
 	ctrl = v4l2_ctrl_find(ctx->fh.ctrl_handler,
 			      V4L2_CID_STATELESS_HEVC_SLICE_PARAMS);
-	if (!ctrl || !ctrl->elems) {
-		v4l2_err(&dev->v4l2_dev, "%s: Missing slice params\n",
-			 __func__);
-		goto fail;
-	}
-	run.h265.slice_ents = ctrl->elems;
+	run.h265.slice_ents = ctrl->elems;	/* Framework ensures >= 1 */
 	run.h265.slice_params = ctrl->p_cur.p;
 
 	run.h265.scaling_matrix =
@@ -2611,6 +2606,7 @@ void hevc_d_device_run(void *priv)
 
 fail:
 	/* We really shouldn't get here but tidy up what we can */
+	v4l2_ctrl_request_complete(src_req, &ctx->hdl);
 	v4l2_m2m_buf_done_and_job_finish(dev->m2m_dev, ctx->fh.m2m_ctx,
 					 VB2_BUF_STATE_ERROR);
 	media_request_manual_complete(src_req);
