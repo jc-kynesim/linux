@@ -83,6 +83,11 @@ void hevc_d_prepare_src_format(struct v4l2_pix_format_mplane *pix_fmt)
 	/* Zero bytes per line for encoded source. */
 	pix_fmt->plane_fmt[0].bytesperline = 0;
 	pix_fmt->plane_fmt[0].sizeimage = sizeimage;
+
+	/* Zero all unused planes */
+	memset(pix_fmt->plane_fmt + pix_fmt->num_planes, 0,
+	       (ARRAY_SIZE(pix_fmt->plane_fmt) - pix_fmt->num_planes) *
+		sizeof(*pix_fmt->plane_fmt));
 }
 
 /* Take any pix_format and make it valid */
@@ -171,6 +176,11 @@ static void hevc_d_prepare_dst_format(struct v4l2_pix_format_mplane *pix_fmt)
 		pix_fmt->num_planes = 1;
 		break;
 	}
+
+	/* Zero all unused planes */
+	memset(pix_fmt->plane_fmt + pix_fmt->num_planes, 0,
+	       (ARRAY_SIZE(pix_fmt->plane_fmt) - pix_fmt->num_planes) *
+		sizeof(*pix_fmt->plane_fmt));
 }
 
 static int hevc_d_querycap(struct file *file, void *priv,
@@ -200,7 +210,7 @@ static int hevc_d_enum_fmt_vid_out(struct file *file, void *priv,
 }
 
 static u32 pixelformat_from_sps(const struct v4l2_ctrl_hevc_sps * const sps,
-				const int index)
+				const unsigned int index)
 {
 	static const u32 all_formats[] = {
 		V4L2_PIX_FMT_NV12MT_COL128,
@@ -262,7 +272,7 @@ hevc_d_hevc_default_dst_fmt(struct hevc_d_ctx * const ctx)
 }
 
 static u32 hevc_d_hevc_get_dst_pixelformat(struct hevc_d_ctx * const ctx,
-					   const int index)
+					   const unsigned int index)
 {
 	const struct v4l2_ctrl_hevc_sps * const sps =
 		hevc_d_find_control_data(ctx, V4L2_CID_STATELESS_HEVC_SPS);
@@ -320,7 +330,7 @@ static int hevc_d_try_fmt_vid_cap(struct file *file, void *priv,
 	const struct v4l2_ctrl_hevc_sps * const sps =
 		hevc_d_find_control_data(ctx, V4L2_CID_STATELESS_HEVC_SPS);
 	u32 pixelformat;
-	int i;
+	unsigned int i;
 
 	for (i = 0; (pixelformat = pixelformat_from_sps(sps, i)) != 0; i++) {
 		if (f->fmt.pix_mp.pixelformat == pixelformat)
