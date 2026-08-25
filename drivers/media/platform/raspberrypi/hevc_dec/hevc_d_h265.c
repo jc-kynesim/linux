@@ -1455,7 +1455,7 @@ static int dec_env_init(struct hevc_d_ctx *const ctx)
 {
 	unsigned int i;
 
-	ctx->dec_pool = kzalloc(sizeof(*ctx->dec_pool) * HEVC_D_DEC_ENV_COUNT,
+	ctx->dec_pool = kcalloc(HEVC_D_DEC_ENV_COUNT, sizeof(*ctx->dec_pool),
 				GFP_KERNEL);
 	if (!ctx->dec_pool)
 		return -ENOMEM;
