@@ -29,9 +29,9 @@ static inline struct hevc_d_ctx *hevc_d_file2ctx(struct file *file)
 size_t hevc_d_round_up_size(const size_t x)
 {
 	/* Admit no size < 256 */
-	const unsigned int n = x < 256 ? 8 : ilog2(x);
+	const unsigned int n = x < 256 ? 7 : ilog2(x) - 1;
 
-	return x >= (3 << n) ? 4 << n : (3 << n);
+	return x >= ((size_t)3 << n) ? (size_t)4 << n : ((size_t)3 << n);
 }
 
 static u32 bit_buf_size(unsigned int w, unsigned int h, unsigned int bits_minus8)
