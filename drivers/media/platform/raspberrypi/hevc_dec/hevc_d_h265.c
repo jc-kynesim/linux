@@ -228,8 +228,8 @@ struct hevc_d_dec_state {
 	unsigned int tile_width;        /* Width in tiles */
 	unsigned int tile_height;       /* Height in tiles */
 
-	int *col_bd;
-	int *row_bd;
+	unsigned int *col_bd;
+	unsigned int *row_bd;
 	int *ctb_addr_rs_to_ts;
 	int *ctb_addr_ts_to_rs;
 
@@ -296,7 +296,7 @@ static void p1_apb_write(struct hevc_d_dec_env *const de, const u16 addr,
 	de->cmd_len++;
 }
 
-static int ctb_to_tile(unsigned int ctb, unsigned int *bd, int num)
+static int ctb_to_tile(unsigned int ctb, unsigned int *bd)
 {
 	int i;
 
@@ -309,13 +309,13 @@ static int ctb_to_tile(unsigned int ctb, unsigned int *bd, int num)
 static unsigned int ctb_to_tile_x(const struct hevc_d_dec_state *const s,
 				  const unsigned int ctb_x)
 {
-	return ctb_to_tile(ctb_x, s->col_bd, s->tile_width);
+	return ctb_to_tile(ctb_x, s->col_bd);
 }
 
 static unsigned int ctb_to_tile_y(const struct hevc_d_dec_state *const s,
 				  const unsigned int ctb_y)
 {
-	return ctb_to_tile(ctb_y, s->row_bd, s->tile_height);
+	return ctb_to_tile(ctb_y, s->row_bd);
 }
 
 static void aux_q_free(struct hevc_d_ctx *const ctx,
@@ -335,6 +335,15 @@ static struct hevc_d_q_aux *aux_q_alloc(struct hevc_d_ctx *const ctx,
 
 	if (!aq)
 		return NULL;
+
+	/*
+	 * Calculate col mv size from capture size as that provides an
+	 * upper bound on actual size. Size in SPS might vary but must
+	 * be less than the capture format
+	 */
+	ctx->colmv_stride = ALIGN(ctx->dst_fmt.width, 64);
+	ctx->colmv_picsize = ctx->colmv_stride *
+		(ALIGN(ctx->dst_fmt.height, 64) >> 4);
 
 	if (hwbuf_alloc(dev, &aq->col, ctx->colmv_picsize,
 			DMA_ATTR_FORCE_CONTIGUOUS | DMA_ATTR_NO_KERNEL_MAPPING))
@@ -547,7 +556,7 @@ static inline __u32 dma_to_axi_addr(dma_addr_t a)
 }
 
 #define CMDS_WRITE_BITSTREAM 4
-static int write_bitstream(struct hevc_d_dec_env *const de,
+static void write_bitstream(struct hevc_d_dec_env *const de,
 			   const struct hevc_d_dec_state *const s)
 {
 	/* V4L2 always has emulation prevention bytes in the stream */
@@ -560,7 +569,6 @@ static int write_bitstream(struct hevc_d_dec_env *const de,
 	p1_apb_write(de, RPI_BFNUM, len);
 	p1_apb_write(de, RPI_BFCONTROL, offset + (1 << 7)); /* Stop */
 	p1_apb_write(de, RPI_BFCONTROL, offset + (rpi_use_emu << 6));
-	return 0;
 }
 
 /*
@@ -1015,9 +1023,7 @@ static int wpp_decode_slice(struct hevc_d_dec_env *const de,
 	if (rv)
 		return rv;
 
-	rv = write_bitstream(de, s);
-	if (rv)
-		return rv;
+	write_bitstream(de, s);
 
 	if (!s->start_ts || indep || s->ctb_width == 1)
 		write_prob(de, s);
@@ -1132,9 +1138,7 @@ static int decode_slice(struct hevc_d_dec_env *const de,
 		return rv;
 
 	pre_slice_decode(de, s);
-	rv = write_bitstream(de, s);
-	if (rv)
-		return rv;
+	write_bitstream(de, s);
 
 	reset_qp_y = !s->start_ts ||
 		!s->dependent_slice_segment_flag ||
@@ -1392,14 +1396,6 @@ fail:
 	/* Set invalid to force reload */
 	s->sps.pic_width_in_luma_samples = 0;
 	return rv;
-}
-
-static void setup_colmv(struct hevc_d_ctx *const ctx, struct hevc_d_run *run,
-			struct hevc_d_dec_state *const s)
-{
-	ctx->colmv_stride = ALIGN(s->sps.pic_width_in_luma_samples, 64);
-	ctx->colmv_picsize = ctx->colmv_stride *
-		(ALIGN(s->sps.pic_height_in_luma_samples, 64) >> 4);
 }
 
 static struct hevc_d_dec_env *dec_env_new(struct hevc_d_ctx *const ctx)
@@ -1707,11 +1703,6 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 			    s->sps.pic_width_in_luma_samples;
 	de->rpi_currpoc = sh0->slice_pic_order_cnt;
 
-	if (s->sps.flags &
-	    V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED) {
-		setup_colmv(ctx, run, s);
-	}
-
 	s->slice_idx = 0;
 
 	/* Either map src buffer or use directly */
@@ -1731,7 +1722,7 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 		const bool last_slice = i + 1 == run->h265.slice_ents;
 		unsigned int bit_size = old_bits ? sh->bit_size - 8 * sh->data_byte_offset :
 						   sh->bit_size;
-		const u32 byte_size = DIV_ROUND_UP(bit_size, 8);
+		const u32 byte_size = DIV_ROUND_UP_POW2(bit_size, 8);
 		unsigned int j;
 
 		s->sh = sh;
@@ -1747,16 +1738,16 @@ static int hevc_d_h265_setup(struct hevc_d_ctx *ctx, struct hevc_d_run *run)
 			goto fail;
 		}
 
-		if (old_bits && sh->bit_size <= 8 * sh->data_byte_offset) {
+		if (old_bits && sh->bit_size <= 8 * (u64)sh->data_byte_offset) {
 			v4l2_warn(&dev->v4l2_dev,
-				  "data_byte_offset %d * 8 >= bits %d\n",
+				  "data_byte_offset %u * 8 >= bits %u\n",
 				  sh->data_byte_offset, sh->bit_size);
 			goto fail;
 		}
 
-		if (sh->data_byte_offset + byte_size > run->src->planes[0].bytesused) {
+		if ((u64)sh->data_byte_offset + byte_size > run->src->planes[0].bytesused) {
 			v4l2_warn(&dev->v4l2_dev,
-				  "data_byte_offset %d + bits %d (= %d bytes) > bytesused %d\n",
+				  "data_byte_offset %u + bits %u (= %u bytes) > bytesused %u\n",
 				  sh->data_byte_offset, bit_size, byte_size,
 				  run->src->planes[0].bytesused);
 			goto fail;
@@ -2298,8 +2289,11 @@ int hevc_d_h265_start(struct hevc_d_ctx *ctx)
 	size_t pu_size;
 	size_t coeff_size;
 
+	/* Reset values that must be zeroed on a second run */
 	ctx->fatal_err = 0;
 	ctx->dec0 = NULL;
+	memset(ctx->slots, 0, sizeof(ctx->slots));
+
 	ctx->state = kzalloc(sizeof(*ctx->state), GFP_KERNEL);
 	if (!ctx->state) {
 		v4l2_err(&dev->v4l2_dev, "Failed to allocate decode state\n");
