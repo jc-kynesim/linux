@@ -79,7 +79,6 @@ void *hevc_d_find_control_data(struct hevc_d_ctx *ctx, u32 id)
 static int hevc_d_init_ctrls(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
 {
 	struct v4l2_ctrl_handler *hdl = &ctx->hdl;
-	struct v4l2_ctrl *ctrl;
 	unsigned int i;
 
 	v4l2_ctrl_handler_init(hdl, ARRAY_SIZE(hevc_d_ctrls));
@@ -90,7 +89,7 @@ static int hevc_d_init_ctrls(struct hevc_d_dev *dev, struct hevc_d_ctx *ctx)
 	}
 
 	for (i = 0; i < ARRAY_SIZE(hevc_d_ctrls); i++) {
-		ctrl = v4l2_ctrl_new_custom(hdl, &hevc_d_ctrls[i], ctx);
+		v4l2_ctrl_new_custom(hdl, &hevc_d_ctrls[i], ctx);
 		if (hdl->error) {
 			v4l2_err(&dev->v4l2_dev,
 				 "Failed to create new custom control id=%#x\n",
