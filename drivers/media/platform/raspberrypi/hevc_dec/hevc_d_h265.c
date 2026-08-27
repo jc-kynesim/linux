@@ -2084,24 +2084,25 @@ static void phase1_thread(struct hevc_d_dev *const dev, void *v)
 	struct hevc_d_hwbuf *const coeff_hwbuf = ctx->coeff_bufs + ctx->p2idx;
 
 	if (de->p1_status & STATUS_PU_EXHAUSTED) {
-		if (hwbuf_realloc_new(dev, pu_hwbuf, next_size(pu_hwbuf->size))) {
-			v4l2_err(&dev->v4l2_dev,
-				 "%s: PU realloc (%zx) failed\n",
+		if (hwbuf_realloc_new(dev, pu_hwbuf,
+				      max(next_size(pu_hwbuf->size), ctx->pu_size_max))) {
+			v4l2_err(&dev->v4l2_dev, "%s: PU realloc (%zx) failed\n",
 				 __func__, pu_hwbuf->size);
 			goto fail;
 		}
+		ctx->pu_size_max = pu_hwbuf->size;
 		hevc_d_dbg(1, &dev->v4l2_dev, "%s: PU realloc (%zx) OK\n",
 			   __func__, pu_hwbuf->size);
 	}
 
 	if (de->p1_status & STATUS_COEFF_EXHAUSTED) {
 		if (hwbuf_realloc_new(dev, coeff_hwbuf,
-				      next_size(coeff_hwbuf->size))) {
-			v4l2_err(&dev->v4l2_dev,
-				 "%s: Coeff realloc (%zx) failed\n",
+				      max(next_size(coeff_hwbuf->size), ctx->coeff_size_max))) {
+			v4l2_err(&dev->v4l2_dev, "%s: Coeff realloc (%zx) failed\n",
 				 __func__, coeff_hwbuf->size);
 			goto fail;
 		}
+		ctx->coeff_size_max = coeff_hwbuf->size;
 		hevc_d_dbg(1, &dev->v4l2_dev, "%s: Coeff realloc (%zx) OK\n",
 			   __func__, coeff_hwbuf->size);
 	}
@@ -2270,6 +2271,8 @@ static void h265_ctx_uninit(struct hevc_d_dev *const dev, struct hevc_d_ctx *ctx
 		hwbuf_free(dev, ctx->pu_bufs + i);
 	for (i = 0; i != ARRAY_SIZE(ctx->coeff_bufs); ++i)
 		hwbuf_free(dev, ctx->coeff_bufs + i);
+	ctx->pu_size_max = 0;
+	ctx->coeff_size_max = 0;
 }
 
 void hevc_d_h265_stop(struct hevc_d_ctx *ctx)
